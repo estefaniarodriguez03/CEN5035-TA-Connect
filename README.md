@@ -1,11 +1,17 @@
-# CEN5035-TA-Connect
+# CEN5035 Group Project: TA Connect
 
-Project description
+## Project Name 
+**TA Connect**
 
-Front-End:
--Sara Waters
--Estefania Rodriguez Da Silva
+## Project Description
 
-Back-End:
--Raghav Nanjappan
--John Spurrier
+## Project Members
+### Front-End Engineers:
+**1. Sara Waters**
+
+**2. Estefania Rodriguez Da Silva**
+
+### Back-End Engineers:
+**1. Raghav Nanjappan**
+
+**2. John Spurrier**
