@@ -1,5 +1,7 @@
 # TA Connect Sprint 1
+
 ## User Stories
+
 * As a student, I want to join a real-time queue for office hours to track my position.
 * As a student, I want the application to show me an estimated wait time for my turn so that I can decide to stay in the queue or leave.
 * As a student, I want to receive push notifications for when it is about to be my turn so that I am informed about my position and can be ready.
@@ -14,33 +16,43 @@
 * As a TA, I want the ability to pause or close the queue so I can finish on time.
 
 ## What Issues We Planned to Address
+
 ### Front-End
+
 * Create authentication page with login and registration options
 * Create the "Home" landing page for a student
 * Create the "Home" landing page for a TA
+
 ### Back-End
+
 * Create database schema
 
 ## Which Ones Were Successfully Completed
-### Front-End  
+
+### Front-End (Completed)
+
 * More information here …
 
-### Back-End
+### Back-End (Completed)
+
 * More information here …
 
 ## Which Ones Didn't and Why?
-### Front-End
+
+### Front-End (Not Completed)
+
 * More information here …
 
-### Back-End
+### Back-End (Not Completed)
+
 * More information here …
 
-## Front-End and Back-End Demo Links:  
+## Front-End and Back-End Demo Links
+
 **Front End:** [insert video link]  
 
 Record a video with both members demoing your frontend work. Use a mocked up backend, if necessary.
-    
+
 **Back End:** [insert video link]
 
 Record a video with both members demoing your backend work. Use the command line or Postman.
-
