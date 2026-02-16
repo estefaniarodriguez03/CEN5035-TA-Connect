@@ -3,11 +3,14 @@ package routes
 import (
 	"database/sql"
 	"net/http"
+
+	"backend/internal/auth"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// SetupRoutes returns a configured chi.Mux with health check and CORS.
+// SetupRoutes returns a configured chi.Mux with health check, auth, and CORS.
 func SetupRoutes(db *sql.DB) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -17,6 +20,8 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Use(corsMiddleware)
 
 	r.Get("/health", healthHandler(db))
+	r.Post("/api/login", auth.Login(db))
+	r.Post("/api/register", auth.Register(db))
 	return r
 }
 
@@ -38,8 +43,8 @@ func healthHandler(db *sql.DB) http.HandlerFunc {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Authorization")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
