@@ -62,3 +62,27 @@ server listening on :8080
 ### Test PostgreSQL connection
 
 localhost:8080/health pings the database
+
+## 5. Auth (login / register)
+
+Set `JWT_SECRET` in your `.env` (see `.env.example`). The server uses it to sign JWTs.
+
+### Test with curl
+
+**Register** (creates a user; role is `student` or `ta`):
+
+```bash
+curl -X POST http://localhost:8080/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","email":"alice@example.com","password":"secret123","role":"student"}'
+```
+
+**Login**:
+
+```bash
+curl -X POST http://localhost:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@example.com","password":"secret123"}'
+```
+
+Both return JSON with `token` (JWT) and `user` (id, username, email, role). Use the token in the `Authorization: Bearer <token>` header for protected endpoints later.
