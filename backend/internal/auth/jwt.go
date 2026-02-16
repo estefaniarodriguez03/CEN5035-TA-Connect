@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Claims holds the JWT payload (user id, email, role).
