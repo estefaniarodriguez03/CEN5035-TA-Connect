@@ -26,6 +26,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("database connect: %v", err)
 	}
+
+	if err := db.Migrate(database); err != nil {
+		log.Fatalf("database migrate: %v", err)
+	}
+
 	defer database.Close()
 
 	router := routes.SetupRoutes(database)
