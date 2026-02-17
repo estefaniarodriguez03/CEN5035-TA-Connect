@@ -41,7 +41,7 @@ If you created a different database use that values instead.
 
 From the `backend` directory:
 
-First run this for dependecies: 
+First run this for dependecies:
 
 ```bash
 go mod tidy
@@ -55,13 +55,13 @@ go run ./cmd/server
 
 You should see this:
 
-```
+```bash
 server listening on :8080
 ```
 
 ### Test PostgreSQL connection
 
-localhost:8080/health pings the database
+`localhost:8080/health` pings the database
 
 ## 5. Auth (login / register)
 
