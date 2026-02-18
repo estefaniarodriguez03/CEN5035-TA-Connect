@@ -62,8 +62,9 @@
 
 ## Front-End and Back-End Demo Links
 
-**Front End:** [insert video link]  
+**Front End:** [Sprint 1 Frontend Video](https://youtu.be/_z24shsNOoE)  
 
 Record a video with both members demoing your frontend work. Use a mocked up backend, if necessary.
 
-**Back End:** [https://youtu.be/87dYle9wIx0](https://youtu.be/87dYle9wIx0)
+**Back End:** [Sprint 1 Backend Video](https://youtu.be/87dYle9wIx0)
+
