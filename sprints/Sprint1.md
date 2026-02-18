@@ -64,7 +64,6 @@
 
 **Front End:** [Sprint 1 Frontend Video](https://youtu.be/_z24shsNOoE)  
 
-Record a video with both members demoing your frontend work. Use a mocked up backend, if necessary.
-
 **Back End:** [Sprint 1 Backend Video](https://youtu.be/87dYle9wIx0)
+
 
