@@ -25,7 +25,7 @@
 
 ### Back-End
 
-* Establish Go to Postgres connection 
+* Establish Go to Postgres connection
 * Create database schema for users and office hours
 * Create user authentication credentials to allow login and registration
 
@@ -35,7 +35,7 @@
 
 * Create authentication page with login and registration options
   * Created landing page for application including a welcome screen with options to login and register
-  * Connected frontend to backend database to 
+  * Connected frontend to backend database
 * Create the "Home" landing page for a student
 * Create the "Home" landing page for a TA
   
@@ -58,7 +58,7 @@
 
 ### Back-End (Not Completed)
 
-* More information here …
+* All tasks were completed for the backend.
 
 ## Front-End and Back-End Demo Links
 
@@ -66,7 +66,4 @@
 
 Record a video with both members demoing your frontend work. Use a mocked up backend, if necessary.
 
-**Back End:** [insert video link]
-
-Record a video with both members demoing your backend work. Use the command line or Postman.
-
+**Back End:** [https://youtu.be/87dYle9wIx0](https://youtu.be/87dYle9wIx0)
