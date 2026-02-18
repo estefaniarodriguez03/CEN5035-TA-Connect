@@ -37,7 +37,9 @@
   * Created landing page for application including a welcome screen with options to login and register
   * Connected frontend to backend database
 * Create the "Home" landing page for a student
+  * Created dashboard for student role including their courses, available office hour sessions, and queue options 
 * Create the "Home" landing page for a TA
+  * Created dashboard for TA role including the option to start an office hour session and an overview of their sessions
   
 ### Back-End (Completed)
 
@@ -55,6 +57,7 @@
 
 * User login and registration currently only allow local accounts as opposed to GatorLink. Other forms of authentication will be added later.
 * Validation of user role currently does not exist. We will need to determine how to tackle this problem in upcoming sprints.
+* Student and TA dashboards need functionality implemented in the next sprint.
 
 ### Back-End (Not Completed)
 
@@ -62,8 +65,9 @@
 
 ## Front-End and Back-End Demo Links
 
-**Front End:** [Sprint 1 Frontend Video](https://youtu.be/_z24shsNOoE)  
+**Front-End:** [Sprint 1 Frontend Video](https://youtu.be/_z24shsNOoE)  
 
-**Back End:** [Sprint 1 Backend Video](https://youtu.be/87dYle9wIx0)
+**Back-End:** [Sprint 1 Backend Video](https://youtu.be/87dYle9wIx0)
+
 
 
