@@ -25,23 +25,36 @@
 
 ### Back-End
 
-* Create database schema
+* Establish Go to Postgres connection 
+* Create database schema for users and office hours
+* Create user authentication credentials to allow login and registration
 
 ## Which Ones Were Successfully Completed
 
 ### Front-End (Completed)
 
-* More information here …
-
+* Create authentication page with login and registration options
+  * Created landing page for application including a welcome screen with options to login and register
+  * Connected frontend to backend database to 
+* Create the "Home" landing page for a student
+* Create the "Home" landing page for a TA
+  
 ### Back-End (Completed)
 
-* More information here …
+* Establish Go to Postgres connection
+  * Connected backend to Postgres database for frontend to access
+* Create database schema for users
+  * Created user schema including username, email, password, and role
+  * Created office hours scheme including TA name, email, and availability
+* Create user authentication credentials to allow login and registration
+  * Created user authentication credentials for student and TA role for different types of login
 
 ## Which Ones Didn't and Why?
 
 ### Front-End (Not Completed)
 
-* More information here …
+* User login and registration currently only allow local accounts as opposed to GatorLink. Other forms of authentication will be added later.
+* Validation of user role currently does not exist. We will need to determine how to tackle this problem in upcoming sprints.
 
 ### Back-End (Not Completed)
 
@@ -56,3 +69,4 @@ Record a video with both members demoing your frontend work. Use a mocked up bac
 **Back End:** [insert video link]
 
 Record a video with both members demoing your backend work. Use the command line or Postman.
+
