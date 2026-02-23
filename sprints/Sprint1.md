@@ -37,7 +37,7 @@
   * Created landing page for application including a welcome screen with options to login and register
   * Connected frontend to backend database
 * Create the "Home" landing page for a student
-  * Created dashboard for student role including their courses, available office hour sessions, and queue options 
+  * Created dashboard for student role including their courses, available office hour sessions, and queue options
 * Create the "Home" landing page for a TA
   * Created dashboard for TA role including the option to start an office hour session and an overview of their sessions
   
@@ -68,6 +68,3 @@
 **Front-End:** [Sprint 1 Frontend Video](https://youtu.be/_z24shsNOoE)  
 
 **Back-End:** [Sprint 1 Backend Video](https://youtu.be/87dYle9wIx0)
-
-
-
