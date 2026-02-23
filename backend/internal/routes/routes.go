@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/queue"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -22,6 +23,15 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Get("/health", healthHandler(db))
 	r.Post("/api/login", auth.Login(db))
 	r.Post("/api/register", auth.Register(db))
+
+	r.Post("/api/queues", queue.CreateQueue(db))
+	r.Route("/api/queues/{id}", func(r chi.Router) {
+		r.Get("/", queue.GetQueue(db))
+		r.Get("/entries", queue.ListEntries(db))
+		r.Post("/join", queue.Join(db))
+		r.Post("/leave", queue.Leave(db))
+	})
+
 	return r
 }
 
