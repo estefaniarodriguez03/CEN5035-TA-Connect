@@ -22,6 +22,15 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Get("/health", healthHandler(db))
 	r.Post("/api/login", auth.Login(db))
 	r.Post("/api/register", auth.Register(db))
+
+	r.Post("/api/queues", queue.CreateQueue(db))
+	r.Route("/api/queues/{id}", func(r chi.Router) {
+		r.Get("/", queue.GetQueue(db))
+		r.Post("/next", queue.Next(db))
+		r.Post("/join", queue.Join(db))
+		r.Post("/leave", queue.Leave(db))
+	})
+
 	return r
 }
 
