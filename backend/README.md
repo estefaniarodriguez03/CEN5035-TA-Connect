@@ -67,7 +67,7 @@ server listening on :8080
 
 Set `JWT_SECRET` in your `.env` (see `.env.example`). The server uses it to sign JWTs.
 
-### Test with curl
+### Test with curl (macOS / Linux)
 
 **Register** (creates a user; role is `student` or `ta`):
 
@@ -86,3 +86,63 @@ curl -X POST http://localhost:8080/api/login \
 ```
 
 Both return JSON with `token` (JWT) and `user` (id, username, email, role). Use the token in the `Authorization: Bearer <token>` header for protected endpoints later.
+
+### Windows (PowerShell)
+
+**Health**:
+
+```powershell
+curl.exe "http://localhost:8080/health"
+```
+
+**Register** (`curl.exe`):
+
+```powershell
+curl.exe -X POST "http://localhost:8080/api/register" `
+  -H "Content-Type: application/json" `
+  -d "{\"username\":\"alice\",\"email\":\"alice@example.com\",\"password\":\"secret123\",\"role\":\"student\"}"
+```
+
+**Login** (`curl.exe`):
+
+```powershell
+curl.exe -X POST "http://localhost:8080/api/login" `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"alice@example.com\",\"password\":\"secret123\"}"
+```
+
+**Register / Login** (native PowerShell):
+
+```powershell
+$registerBody = @{
+  username = "alice"
+  email    = "alice@example.com"
+  password = "secret123"
+  role     = "student"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method POST `
+  -Uri "http://localhost:8080/api/register" `
+  -ContentType "application/json" `
+  -Body $registerBody
+
+$loginBody = @{
+  email    = "alice@example.com"
+  password = "secret123"
+} | ConvertTo-Json
+
+$loginResponse = Invoke-RestMethod -Method POST `
+  -Uri "http://localhost:8080/api/login" `
+  -ContentType "application/json" `
+  -Body $loginBody
+
+$TOKEN = $loginResponse.token
+```
+
+Then use the token for protected endpoints:
+
+```powershell
+$headers = @{ Authorization = "Bearer $TOKEN" }
+# Example:
+# Invoke-RestMethod -Method POST -Uri "http://localhost:8080/api/queues/2/next" -Headers $headers
+```
