@@ -107,7 +107,7 @@ func Register(db *sql.DB) http.HandlerFunc {
 			`INSERT INTO users (username, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id`,
 			req.Username, req.Email, hash, req.Role).Scan(&id)
 		if err != nil {
-			if isUniqueViolation(err) {
+			if IsUniqueViolation(err) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "username or email already in use"})
 				return
 			}
@@ -143,8 +143,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// isUniqueViolation checks for PostgreSQL unique constraint violation.
-func isUniqueViolation(err error) bool {
+// IsUniqueViolation checks for PostgreSQL unique constraint violation.
+func IsUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}

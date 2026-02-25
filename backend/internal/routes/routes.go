@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/queue"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
