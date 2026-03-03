@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Queue Realtime Demo</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    h2, h3 { margin-top: 16px; }
+    label { display: block; margin-top: 6px; }
+    input, select { width: 280px; }
+    button { margin-top: 8px; margin-right: 6px; }
+    #log {
+      margin-top: 16px;
+      border: 1px solid #ccc;
+      padding: 8px;
+      height: 250px;
+      overflow-y: auto;
+      font-family: monospace;
+      background: #fafafa;
+    }
+    #users { margin-top: 8px; }
+    #users li { margin-bottom: 4px; }
+    .token {
+      font-size: 0.8em;
+      color: #555;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <h2>Queue Realtime Demo</h2>
+
+  <label>
+    Backend URL:
+    <input id="backendUrl" value="http://localhost:8080">
+  </label>
+
+  <label>
+    Queue ID:
+    <input id="queueId" value="1">
+  </label>
+
+  <h3>Auth: Register / Login</h3>
+
+  <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
+    <strong>Register</strong>
+    <label>
+      Username:
+      <input id="regUsername">
+    </label>
+    <label>
+      Email:
+      <input id="regEmail">
+    </label>
+    <label>
+      Password:
+      <input id="regPassword" type="password">
+    </label>
+    <label>
+      Role:
+      <select id="regRole">
+        <option value="student">student</option>
+        <option value="ta">ta</option>
+      </select>
+    </label>
+    <button onclick="registerUser()">Register</button>
+  </div>
+
+  <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
+    <strong>Login</strong>
+    <label>
+      Email:
+      <input id="loginEmail">
+    </label>
+    <label>
+      Password:
+      <input id="loginPassword" type="password">
+    </label>
+    <button onclick="loginUser()">Login</button>
+  </div>
+
+  <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
+    <strong>Current token (used for join/leave/next)</strong>
+    <label>
+      Token:
+      <input id="token" placeholder="Will be filled after login/register">
+    </label>
+    <button onclick="clearToken()">Clear token</button>
+    <div id="currentUserInfo" style="margin-top:4px; font-size:0.9em; color:#333;"></div>
+  </div>
+
+  <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
+    <strong>Saved users (click to use token)</strong>
+    <ul id="users"></ul>
+  </div>
+
+  <h3>Queue actions</h3>
+
+  <div style="margin-top: 4px;">
+    <button onclick="connectEvents()">Connect to /events</button>
+    <button onclick="disconnectEvents()">Disconnect</button>
+  </div>
+
+  <div style="margin-top: 10px;">
+    <button onclick="joinQueue()">POST /join</button>
+    <button onclick="leaveQueue()">POST /leave</button>
+    <button onclick="nextStudent()">POST /next</button>
+  </div>
+
+  <pre id="log"></pre>
+
+  <script>
+    let es = null;
+    let savedUsers = []; // { email, username, role, token }
+
+    function log(msg) {
+      const el = document.getElementById('log');
+      const time = new Date().toISOString();
+      el.textContent += `[${time}] ${msg}\n`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function getBaseInfo() {
+      const backend = document.getElementById('backendUrl').value.replace(/\/+$/, '');
+      const queueId = document.getElementById('queueId').value.trim();
+      return { backend, queueId };
+    }
+
+    function setCurrentToken(token, user) {
+      document.getElementById('token').value = token || '';
+      const infoEl = document.getElementById('currentUserInfo');
+      if (token && user) {
+        infoEl.textContent = `Current user: ${user.username} (${user.email}, role=${user.role})`;
+      } else {
+        infoEl.textContent = '';
+      }
+    }
+
+    function addOrUpdateSavedUser(user, token) {
+      const existingIndex = savedUsers.findIndex(u => u.email === user.email);
+      const entry = {
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        token: token,
+      };
+      if (existingIndex >= 0) {
+        savedUsers[existingIndex] = entry;
+      } else {
+        savedUsers.push(entry);
+      }
+      renderSavedUsers();
+    }
+
+    function renderSavedUsers() {
+      const ul = document.getElementById('users');
+      ul.innerHTML = '';
+      if (savedUsers.length === 0) {
+        const li = document.createElement('li');
+        li.textContent = 'No users saved yet.';
+        ul.appendChild(li);
+        return;
+      }
+      savedUsers.forEach((u, idx) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.textContent = 'Use token';
+        btn.onclick = () => {
+          setCurrentToken(u.token, u);
+          log(`Switched to user ${u.username} (${u.email}, role=${u.role})`);
+        };
+        const span = document.createElement('span');
+        span.innerHTML = ` ${idx + 1}. ${u.username} (${u.email}, role=${u.role})<br><span class="token">${u.token}</span>`;
+        li.appendChild(btn);
+        li.appendChild(span);
+        ul.appendChild(li);
+      });
+    }
+
+    async function registerUser() {
+      const { backend } = getBaseInfo();
+      const username = document.getElementById('regUsername').value.trim();
+      const email = document.getElementById('regEmail').value.trim();
+      const password = document.getElementById('regPassword').value;
+      const role = document.getElementById('regRole').value;
+
+      if (!username || !email || !password || !role) {
+        alert('Fill all register fields');
+        return;
+      }
+
+      const url = `${backend}/api/register`;
+      log(`POST ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, password, role }),
+        });
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+        if (res.ok) {
+          const data = JSON.parse(text);
+          const token = data.token;
+          const user = data.user;
+          addOrUpdateSavedUser(user, token);
+          setCurrentToken(token, user);
+        }
+      } catch (err) {
+        log(`Register error: ${err}`);
+      }
+    }
+
+    async function loginUser() {
+      const { backend } = getBaseInfo();
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      if (!email || !password) {
+        alert('Fill email and password');
+        return;
+      }
+
+      const url = `${backend}/api/login`;
+      log(`POST ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+        if (res.ok) {
+          const data = JSON.parse(text);
+          const token = data.token;
+          const user = data.user;
+          addOrUpdateSavedUser(user, token);
+          setCurrentToken(token, user);
+        }
+      } catch (err) {
+        log(`Login error: ${err}`);
+      }
+    }
+
+    function clearToken() {
+      setCurrentToken('', null);
+      log('Cleared current token');
+    }
+
+    function connectEvents() {
+      const { backend, queueId } = getBaseInfo();
+      if (!queueId) {
+        alert('Enter a queue ID');
+        return;
+      }
+
+      if (es) {
+        es.close();
+      }
+
+      const url = `${backend}/api/queues/${queueId}/events`;
+      log(`Connecting EventSource to ${url}`);
+
+      es = new EventSource(url);
+
+      es.onopen = () => log('EventSource opened');
+      es.onerror = (e) => log('EventSource error (check CORS / server): ' + e.type);
+
+      const events = ['STUDENT_JOINED', 'STUDENT_LEFT', 'STUDENT_SERVED', 'QUEUE_UPDATED'];
+      events.forEach((eventName) => {
+        es.addEventListener(eventName, (event) => {
+          log(`${eventName}: ${event.data}`);
+        });
+      });
+    }
+
+    function disconnectEvents() {
+      if (es) {
+        es.close();
+        es = null;
+        log('EventSource closed');
+      }
+    }
+
+    async function postQueueAction(action) {
+      const { backend, queueId } = getBaseInfo();
+      const token = document.getElementById('token').value.trim();
+      const url = `${backend}/api/queues/${queueId}/${action}`;
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+      }
+
+      log(`POST ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: action === 'join' ? '{}' : null,
+        });
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+      } catch (err) {
+        log(`Request error: ${err}`);
+      }
+    }
+
+    function joinQueue() { postQueueAction('join'); }
+    function leaveQueue() { postQueueAction('leave'); }
+    function nextStudent() { postQueueAction('next'); }
+
+    // initial
+    renderSavedUsers();
+  </script>
+</body>
+</html>
