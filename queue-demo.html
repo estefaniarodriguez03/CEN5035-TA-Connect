@@ -80,7 +80,7 @@
   </div>
 
   <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
-    <strong>Current token (used for join/leave/next)</strong>
+    <strong>Current token (used for create queue / join / leave / next)</strong>
     <label>
       Token:
       <input id="token" placeholder="Will be filled after login/register">
@@ -92,6 +92,19 @@
   <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
     <strong>Saved users (click to use token)</strong>
     <ul id="users"></ul>
+  </div>
+
+  <h3>Queue management</h3>
+
+  <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
+    <label>
+      Course ID for new queue:
+      <input id="courseId" value="1">
+    </label>
+    <button onclick="createQueue()">Create queue (as current user)</button>
+    <div style="font-size:0.9em; color:#555; margin-top:4px;">
+      Must be logged in as a TA; on success, Queue ID field above is set to the new queue id.
+    </div>
   </div>
 
   <h3>Queue actions</h3>
@@ -246,6 +259,46 @@
     function clearToken() {
       setCurrentToken('', null);
       log('Cleared current token');
+    }
+
+    async function createQueue() {
+      const { backend } = getBaseInfo();
+      const token = document.getElementById('token').value.trim();
+      const courseIdStr = document.getElementById('courseId').value.trim();
+      const courseId = parseInt(courseIdStr, 10);
+
+      if (!courseIdStr || Number.isNaN(courseId)) {
+        alert('Enter a valid course ID');
+        return;
+      }
+
+      const url = `${backend}/api/queues`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+      } else {
+        log('Warning: creating queue without Authorization header will likely fail (TA auth required).');
+      }
+
+      log(`POST ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ course_id: courseId }),
+        });
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+        if (res.ok) {
+          const data = JSON.parse(text);
+          if (data.id) {
+            document.getElementById('queueId').value = data.id;
+            log(`Set Queue ID input to new queue id ${data.id}`);
+          }
+        }
+      } catch (err) {
+        log(`Create queue error: ${err}`);
+      }
     }
 
     function connectEvents() {
