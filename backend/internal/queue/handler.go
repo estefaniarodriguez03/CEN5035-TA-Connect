@@ -110,6 +110,23 @@ func Join(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		// Notify subscribers that a student joined and the queue was updated.
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventStudentJoined,
+			QueueID: queueID,
+			Payload: map[string]any{
+				"id":         entryID,
+				"queue_id":   queueID,
+				"position":   position,
+				"joined_at":  joinedAt,
+				"student_id": claims.UserID,
+			},
+		})
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventQueueUpdated,
+			QueueID: queueID,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -158,6 +175,19 @@ func Leave(db *sql.DB) http.HandlerFunc {
 				FROM queue_entries WHERE queue_id = $1
 			) t WHERE q.queue_id = $1 AND q.id = t.id
 		`, queueID)
+
+		// Notify subscribers that a student left and the queue was updated.
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventStudentLeft,
+			QueueID: queueID,
+			Payload: map[string]any{
+				"student_id": claims.UserID,
+			},
+		})
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventQueueUpdated,
+			QueueID: queueID,
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -265,6 +295,17 @@ func Next(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
 			return
 		}
+
+		// Notify subscribers that a student was served and the queue was updated.
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventStudentServed,
+			QueueID: queueID,
+			Payload: e,
+		})
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventQueueUpdated,
+			QueueID: queueID,
+		})
 
 		// Mark the returned student as "in session" in the API response.
 		writeJSON(w, http.StatusOK, map[string]any{

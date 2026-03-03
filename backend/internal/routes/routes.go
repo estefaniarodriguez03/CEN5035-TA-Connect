@@ -30,6 +30,7 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Post("/next", queue.Next(db))
 		r.Post("/join", queue.Join(db))
 		r.Post("/leave", queue.Leave(db))
+		r.Get("/events", queue.StreamQueueEvents(queue.DefaultHub))
 	})
 
 	return r
