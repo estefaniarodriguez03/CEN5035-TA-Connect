@@ -82,163 +82,93 @@
   - **SSE smoke test**: connects to `GET /api/queues/{id}/events`, then triggers a join
   - **Expectation**: receives `event: STUDENT_JOINED` on the SSE stream
 
-## Add documentation for your backend API 
-Go API server with PostgreSQL.
+## Add documentation for your backend API
 
-### Prerequisites
+The backend is an **HTTP API** in **Go** with **chi** and **PostgreSQL** (`backend/internal/routes/routes.go`, `backend/cmd/server/main.go`, `go.mod`). Most routes use **JSON** request/response bodies. Queues follow **resource-style** paths (`/api/queues`, `/api/queues/{id}`), while **auth** and **queue actions** use **POST** “command” paths (`/api/login`, `/api/register`, `/join`, `/leave`, `/next`) — common for web apps, but not a strict REST-only design. **Live updates** use **Server-Sent Events (SSE)** on **`GET /api/queues/{id}/events`** (`Content-Type: text/event-stream`), not a JSON response body.
 
-**Go** 1.21
-**PostgreSQL** 18.1
+### Run the server
 
-#### 1. Install PostgreSQL
+1. Create a Postgres database (e.g. `officehours`).
+2. In **`backend/`**, copy `.env.example` → `.env` and set the DB connection string and **`JWT_SECRET`**.
+3. Run `go mod tidy` then `go run ./cmd/server`. The process listens on **`PORT`** (default **`8080`**). Smoke test: **`GET /health`** → `200` `{"status":"ok"}` if the DB is reachable.
 
-Download Installer online on PostgresSQL website
+### Conventions
 
-### 2. Create a database
+- **Base URL:** `http://localhost:<PORT>` (replace `8080` if you set `PORT`).
+- **Bodies / errors:** Most endpoints use JSON. **SSE** (`/events`) uses **`text/event-stream`**, not JSON for the overall response. Wrong HTTP method on a handler → **`405`**. Failures usually look like `{"error":"<message>"}`; many DB failures return **`500`** with `"database error"`.
+- **CORS:** `Access-Control-Allow-Methods: GET, POST, OPTIONS`; headers allowed include `Authorization` (see `corsMiddleware` in `routes.go`).
 
-PostgreSQL uses a default superuser `postgres`. Create a database for the app:
+### Authentication
 
-```bash
-psql -U postgres
+After **`POST /api/register`** or **`POST /api/login`**, responses include a **`token`** string. Send it on protected routes as:
 
-# Inside psql:
-CREATE DATABASE officehours;
-\q
-```
+`Authorization: Bearer <token>`
 
-Use a different name if you want it is set in `.env`
+The JWT carries **`user_id`**, **`email`**, and **`role`** (`student` or `ta`) — see `backend/internal/auth/jwt.go`. Missing token, malformed header, or invalid/expired token → **`401`** with `{"error":"authorization required"}`.
 
-### 3. Configure connection
+**Routes that require a valid Bearer token:**
 
-Copy the example env file and set your database credentials:
+| Route | Extra rule (from code) |
+|--------|-------------------------|
+| `POST /api/queues` | Caller must have **`role: ta`** (`403` otherwise). |
+| `POST /api/queues/{id}/join` | Any authenticated user. |
+| `POST /api/queues/{id}/leave` | Any authenticated user. |
+| `POST /api/queues/{id}/next` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
 
-```bash
-cp .env.example .env
-```
+All other routes listed below do **not** require a token.
 
-Values should be set as needed.
+### Endpoints
 
-If you created a different database use that values instead.
+Path parameter **`{id}`** is the numeric queue id (`chi` route `/api/queues/{id}`). If **`{id}`** is not a valid integer, **`GET /api/queues/{id}`**, **join**, **leave**, **next**, and **events** return **`400`** `{"error":"invalid queue id"}`.
 
-### 4. Run the server
+| Method | Path | What it does | Success |
+|--------|------|----------------|---------|
+| `GET` | `/health` | Ping database | **`200`** `{"status":"ok"}` · **`503`** if ping fails (`{"status":"unavailable","error":"database"}`) |
+| `POST` | `/api/register` | Create user | **`200`** JSON with `token` and `user` `{ id, username, email, role }`. **`400`** validation / bad role · **`409`** duplicate username or email |
+| `POST` | `/api/login` | Login | **`200`** same shape as register · **`401`** bad email/password |
+| `POST` | `/api/queues` | TA starts a queue | **`201`** `{ id, course_id, ta_id, status, created_at }` — **`status`** is **`open`**. Optional body: `{ "course_id": 0 }`; omitting the body ⇒ **`course_id` is 0** |
+| `GET` | `/api/queues/{id}` | Queue + waiting students | **`200`** `{ id, course_id, ta_id, status, created_at, entries: [...] }`. Each entry: `id`, `queue_id`, `student_id`, `position`, `joined_at`, `username`. Ordered by **position**, then **joined_at**. **`404`** unknown queue |
+| `POST` | `/api/queues/{id}/join` | Authenticated user joins | **`201`** `{ id, queue_id, position, joined_at }`. Queue must exist and **`status`** must be **`open`**. Duplicate student in same queue → **`409`**. Triggers SSE (below) |
+| `POST` | `/api/queues/{id}/leave` | Authenticated user leaves | **`204`** empty body; positions renumbered. **`404`** if no row was removed (`not in queue`) |
+| `POST` | `/api/queues/{id}/next` | Owning TA removes front of line | **`200`** `{ "queue_id", "status": "in_session", "student": { …entry } }`. **`404`** no queue or empty queue · **`409`** queue not **`open`**. Triggers SSE |
 
-From the `backend` directory:
+**Queue `status` in the database** can be `open`, `paused`, or `closed` (`migrate.go`). **Current API behavior:** **`POST /api/queues`** only creates **`open`** queues; **join** and **next** require **`open`**. There is no HTTP route in this repo to set `paused` / `closed` yet.
 
-First run this for dependecies:
+### Real-time updates (SSE)
 
-```bash
-go mod tidy
-```
+**`GET /api/queues/{id}/events`** — **Server-Sent Events**, no auth.
 
-Then run this to run the database server:
+1. Response headers include `Content-Type: text/event-stream`.
+2. First line is a comment: `: connected` (keeps the stream open).
+3. Later lines look like: `event: <TYPE>` then `data: <JSON>` (blank line between events).
 
-```bash
-go run ./cmd/server
-```
+The **`data`** line is **only** the JSON for the event **`payload`** field (see `StreamQueueEvents` in `backend/internal/queue/events.go`). **`QUEUE_UPDATED`** is sent with **no payload** ⇒ **`data: null`**.
 
-You should see this:
+**`event` names:** `STUDENT_JOINED` · `STUDENT_LEFT` · `STUDENT_SERVED` · `QUEUE_UPDATED`.
 
-```bash
-server listening on :8080
-```
+Join / leave / **next** each publish the corresponding events after the database change succeeds.
 
-### Test PostgreSQL connection
-
-`localhost:8080/health` pings the database
-
-## 5. Auth (login / register)
-
-Set `JWT_SECRET` in your `.env` (see `.env.example`). The server uses it to sign JWTs.
-
-#### Test with curl (macOS / Linux)
-
-**Register** (creates a user; role is `student` or `ta`):
+### Example: register and login (curl)
 
 ```bash
-curl -X POST http://localhost:8080/api/register \
+curl -s -X POST http://localhost:8080/api/register \
   -H "Content-Type: application/json" \
   -d '{"username":"alice","email":"alice@example.com","password":"secret123","role":"student"}'
-```
 
-**Login**:
-
-```bash
-curl -X POST http://localhost:8080/api/login \
+curl -s -X POST http://localhost:8080/api/login \
   -H "Content-Type: application/json" \
   -d '{"email":"alice@example.com","password":"secret123"}'
 ```
 
-Both return JSON with `token` (JWT) and `user` (id, username, email, role). Use the token in the `Authorization: Bearer <token>` header for protected endpoints later.
+Use the `"token"` from the response on a protected call (example: TA creates a queue):
 
-#### Windows (PowerShell)
-
-**Health**:
-
-```powershell
-curl.exe "http://localhost:8080/health"
+```bash
+curl -s -X POST http://localhost:8080/api/queues \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -H "Content-Type: application/json" \
+  -d '{"course_id":0}'
 ```
 
-**Register** (`curl.exe`):
+### Tests
 
-```powershell
-curl.exe -X POST "http://localhost:8080/api/register" `
-  -H "Content-Type: application/json" `
-  -d "{\"username\":\"alice\",\"email\":\"alice@example.com\",\"password\":\"secret123\",\"role\":\"student\"}"
-```
-
-**Login** (`curl.exe`):
-
-```powershell
-curl.exe -X POST "http://localhost:8080/api/login" `
-  -H "Content-Type: application/json" `
-  -d "{\"email\":\"alice@example.com\",\"password\":\"secret123\"}"
-```
-
-**Register / Login** (native PowerShell):
-
-```powershell
-$registerBody = @{
-  username = "alice"
-  email    = "alice@example.com"
-  password = "secret123"
-  role     = "student"
-} | ConvertTo-Json
-
-Invoke-RestMethod -Method POST `
-  -Uri "http://localhost:8080/api/register" `
-  -ContentType "application/json" `
-  -Body $registerBody
-
-$loginBody = @{
-  email    = "alice@example.com"
-  password = "secret123"
-} | ConvertTo-Json
-
-$loginResponse = Invoke-RestMethod -Method POST `
-  -Uri "http://localhost:8080/api/login" `
-  -ContentType "application/json" `
-  -Body $loginBody
-
-$TOKEN = $loginResponse.token
-```
-
-Then use the token for protected endpoints:
-
-```powershell
-$headers = @{ Authorization = "Bearer $TOKEN" }
-# Example:
-# Invoke-RestMethod -Method POST -Uri "http://localhost:8080/api/queues/2/next" -Headers $headers
-```
-
-### How to run Backend API tests
-
-## 1. Have server running
-
-Done with steps above
-
-## 2. Run backend script
-
-Run the terminal command in the backend directory
-```powershell
-go test -v .
-```
+From **`backend/`** with Postgres and `.env` configured: **`go test -v .`** (see **`api_e2e_test.go`**).
