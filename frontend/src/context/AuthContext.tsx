@@ -23,23 +23,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("token");
-    const storedUser = localStorage.getItem("user");
+    const storedToken = sessionStorage.getItem("token") ?? localStorage.getItem("token");
+    const storedUser = sessionStorage.getItem("user") ?? localStorage.getItem("user");
 
     if (storedToken && storedUser) {
+      // Normalize to tab-scoped auth so different tabs can use different accounts.
+      sessionStorage.setItem("token", storedToken);
+      sessionStorage.setItem("user", storedUser);
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
       setToken(storedToken);
       setUser(JSON.parse(storedUser));
     }
   }, []);
 
   function handleLogin(token: string, user: User) {
-    localStorage.setItem("token", token);
-    localStorage.setItem("user", JSON.stringify(user));
+    sessionStorage.setItem("token", token);
+    sessionStorage.setItem("user", JSON.stringify(user));
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     setToken(token);
     setUser(user);
   }
 
   function handleLogout() {
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setToken(null);

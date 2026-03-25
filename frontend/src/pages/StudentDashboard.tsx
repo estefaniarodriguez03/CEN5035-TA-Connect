@@ -1,10 +1,12 @@
 import { useAuth } from "../context/AuthContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
+import { toast } from "sonner";
+import { getActiveQueueForOfficeHour, joinQueue, leaveQueue, getQueueOrNull, subscribeToQueueEvents } from "../api/queue";
 
 interface TAHour {
   id: number;
@@ -24,28 +26,199 @@ interface WeeklySlot {
   color: string;
 }
 
+interface CourseOption {
+  label: string;
+  courseCode: string;
+  courseID: number;
+}
+
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
   const [selectedCourse, setSelectedCourse] = useState(
     "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
   );
+  const [isInQueue, setIsInQueue] = useState(false);
+  const [timeJoined, setTimeJoined] = useState<string>("");
+  const [studentPosition, setStudentPosition] = useState<number | null>(null);
+  const [waitTime, setWaitTime] = useState("0 minutes");
+  const [queueStudentCount, setQueueStudentCount] = useState(0);
+  const [joinedQueueID, setJoinedQueueID] = useState<number | null>(null);
 
-  // Mock data for now we will replace with actual API calls later
-  const courseOptions = [
-    "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)",
-    "COP3530 – Data Structures – Sara Waters (11:00 AM - 1:00 PM)",
-    "COP4020 – Programming Languages – Raghav Nanjappan (2:00 PM - 4:00 PM)",
-    "COP4600 – Operating Systems – John Spurrier (10:00 AM - 12:00 PM)",
+  const courseOptions: CourseOption[] = [
+    {
+      label: "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)",
+      courseCode: "CEN3031",
+      courseID: 1,
+    },
+    {
+      label: "COP3530 – Data Structures – Sara Waters (11:00 AM - 1:00 PM)",
+      courseCode: "COP3530",
+      courseID: 2,
+    },
+    {
+      label: "COP4020 – Programming Languages – Raghav Nanjappan (2:00 PM - 4:00 PM)",
+      courseCode: "COP4020",
+      courseID: 3,
+    },
+    {
+      label: "COP4600 – Operating Systems – John Spurrier (10:00 AM - 12:00 PM)",
+      courseCode: "COP4600",
+      courseID: 4,
+    },
   ];
 
-  const queueData: { [key: string]: { students: number; waitTime: string } } = {
-    "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)": { students: 3, waitTime: "12 minutes" },
-    "COP3530 – Data Structures – Sara Waters (11:00 AM - 1:00 PM)": { students: 0, waitTime: "0 minutes" },
-    "COP4020 – Programming Languages – Raghav Nanjappan (2:00 PM - 4:00 PM)": { students: 0, waitTime: "0 minutes" },
-    "COP4600 – Operating Systems – John Spurrier (10:00 AM - 12:00 PM)": { students: 1, waitTime: "4 minutes" },
-  };
+  const selectedCourseOption = courseOptions.find((course) => course.label === selectedCourse) ?? null;
+  const selectedTimeRange = selectedCourse.match(/\(([^)]+)\)/)?.[1] ?? "";
+  const selectedOfficeHourQueueID = selectedCourseOption
+    ? getActiveQueueForOfficeHour(selectedCourseOption.courseCode, selectedTimeRange)
+    : null;
 
-  const currentQueueInfo = queueData[selectedCourse] || { students: 0, waitTime: "0 minutes" };
+  // Load queue data when selected course changes or when joining/leaving queue
+  useEffect(() => {
+    const loadQueueData = async () => {
+      try {
+        if (!selectedCourseOption) {
+          setQueueStudentCount(0);
+          setWaitTime("0 minutes");
+          setStudentPosition(null);
+          return;
+        }
+
+        const resolvedQueueID = isInQueue && joinedQueueID
+          ? joinedQueueID
+          : selectedOfficeHourQueueID;
+
+        if (!resolvedQueueID) {
+          setQueueStudentCount(0);
+          setWaitTime("0 minutes");
+          setStudentPosition(null);
+          return;
+        }
+
+        const data = await getQueueOrNull(resolvedQueueID);
+        if (!data) {
+          setQueueStudentCount(0);
+          setWaitTime("0 minutes");
+          setStudentPosition(null);
+          if (isInQueue) {
+            setIsInQueue(false);
+            setJoinedQueueID(null);
+          }
+          return;
+        }
+        setQueueStudentCount(data.entries.length);
+        
+        // Calculate wait time: each student = 4 minutes
+        const estimatedWait = data.entries.length * 4;
+        setWaitTime(estimatedWait === 0 ? "0 minutes" : `${estimatedWait} minutes`);
+
+        // Find current student's position if they're in queue
+        if (isInQueue) {
+          const currentStudent = data.entries.find(
+            (entry) => entry.student_id === user?.id
+          );
+          if (currentStudent) {
+            setStudentPosition(currentStudent.position);
+          } else {
+            setStudentPosition(null);
+            setIsInQueue(false);
+            setJoinedQueueID(null);
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load queue data";
+        toast.error(message);
+      }
+    };
+
+    void loadQueueData();
+  }, [selectedCourse, isInQueue, user?.id, joinedQueueID, selectedCourseOption, selectedOfficeHourQueueID]);
+
+  // Subscribe to real-time queue updates
+  useEffect(() => {
+    if (!isInQueue || !joinedQueueID) return;
+
+    const handleQueueEvent = async () => {
+      // Refresh queue data on any event
+      try {
+        const data = await getQueueOrNull(joinedQueueID);
+        if (!data) {
+          setQueueStudentCount(0);
+          setWaitTime("0 minutes");
+          setStudentPosition(null);
+          setIsInQueue(false);
+          return;
+        }
+        setQueueStudentCount(data.entries.length);
+        
+        const estimatedWait = data.entries.length * 4;
+        setWaitTime(estimatedWait === 0 ? "0 minutes" : `${estimatedWait} minutes`);
+
+        const currentStudent = data.entries.find(
+          (entry) => entry.student_id === user?.id
+        );
+        if (currentStudent) {
+          setStudentPosition(currentStudent.position);
+        } else {
+          setStudentPosition(null);
+          setIsInQueue(false);
+          setJoinedQueueID(null);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to update queue data";
+        toast.error(message);
+      }
+    };
+
+    const unsubscribe = subscribeToQueueEvents(
+      joinedQueueID,
+      handleQueueEvent,
+      () => {
+        // fallback to snapshot pull
+        void handleQueueEvent();
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isInQueue, joinedQueueID, user?.id]);
+
+  // Poll snapshot as reliability fallback in case event stream misses updates.
+  useEffect(() => {
+    if (!isInQueue || !joinedQueueID) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await getQueueOrNull(joinedQueueID);
+        if (!data) {
+          setQueueStudentCount(0);
+          setWaitTime("0 minutes");
+          setStudentPosition(null);
+          setIsInQueue(false);
+          setJoinedQueueID(null);
+          return;
+        }
+
+        setQueueStudentCount(data.entries.length);
+        const estimatedWait = data.entries.length * 4;
+        setWaitTime(estimatedWait === 0 ? "0 minutes" : `${estimatedWait} minutes`);
+
+        const currentStudent = data.entries.find((entry) => entry.student_id === user?.id);
+        if (currentStudent) {
+          setStudentPosition(currentStudent.position);
+        } else {
+          setStudentPosition(null);
+          setIsInQueue(false);
+          setJoinedQueueID(null);
+        }
+      } catch {
+        // Keep silent to avoid repeated toast spam from periodic poll.
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isInQueue, joinedQueueID, user?.id]);
 
   const todayTAHours: TAHour[] = [
     { id: 1, taName: "Estefania Rodriguez", time: "(9:00 AM - 11:00 AM)", course: "CEN3031", students: 3, status: "Live" },
@@ -74,6 +247,23 @@ export default function StudentDashboard() {
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
+  const getWeekRange = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(today);
+    monday.setDate(monday.getDate() - daysToMonday);
+    
+    const friday = new Date(monday);
+    friday.setDate(friday.getDate() + 4);
+    
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mondayMonth = monthNames[monday.getMonth()];
+    const fridayMonth = monthNames[friday.getMonth()];
+    
+    return `Week of ${mondayMonth} ${monday.getDate()} - ${fridayMonth} ${friday.getDate()}`;
+  };
+
   const getStatusClass = (status: string) => {
     switch (status) {
       case "Live":
@@ -84,6 +274,59 @@ export default function StudentDashboard() {
         return "status-offline";
       default:
         return "";
+    }
+  };
+
+  const handleJoinQueue = async () => {
+    try {
+      if (!selectedCourseOption) {
+        toast.error("Invalid course selection");
+        return;
+      }
+
+      const queueID = selectedOfficeHourQueueID;
+      if (!queueID) {
+        toast.error("The TA has not opened the queue for this office hours yet. Come back later!");
+        return;
+      }
+
+      const queueState = await getQueueOrNull(queueID);
+      if (!queueState || queueState.status !== "open") {
+        toast.error("The TA has not opened the queue for this office hours yet. Come back later!");
+        return;
+      }
+
+      const response = await joinQueue(queueID);
+      const joined = new Date(response.joined_at);
+      const displayHours = (joined.getHours() % 12) || 12;
+      const displayMinutes = joined.getMinutes().toString().padStart(2, "0");
+      const ampm = joined.getHours() >= 12 ? "PM" : "AM";
+      setTimeJoined(`${displayHours}:${displayMinutes} ${ampm}`);
+      setIsInQueue(true);
+      setJoinedQueueID(queueID);
+      setStudentPosition(response.position);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to join queue";
+      toast.error(message);
+    }
+  };
+
+  const handleLeaveQueue = async () => {
+    try {
+      const queueID = joinedQueueID
+        ?? selectedOfficeHourQueueID;
+      if (!queueID) {
+        toast.error("No active queue to leave.");
+        return;
+      }
+
+      await leaveQueue(queueID);
+      setIsInQueue(false);
+      setJoinedQueueID(null);
+      setStudentPosition(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to leave queue";
+      toast.error(message);
     }
   };
 
@@ -128,10 +371,11 @@ export default function StudentDashboard() {
                 className="course-dropdown"
                 value={selectedCourse}
                 onChange={(e) => setSelectedCourse(e.target.value)}
+                disabled={isInQueue}
               >
                 {courseOptions.map((course, index) => (
-                  <option key={index} value={course}>
-                    {course}
+                  <option key={index} value={course.label}>
+                    {course.label}
                   </option>
                 ))}
               </select>
@@ -143,13 +387,17 @@ export default function StudentDashboard() {
                 <img src={orangeClockIcon} alt="Clock" className="wait-time-icon" />
                 <span className="wait-time-label">Estimated Wait Time</span>
               </div>
-              <div className="wait-time-value">{currentQueueInfo.waitTime}</div>
-              <div className="wait-time-info">Based on {currentQueueInfo.students} student{currentQueueInfo.students !== 1 ? "s" : ""} currently in queue</div>
+              <div className="wait-time-value">{waitTime}</div>
+              <div className="wait-time-info">Based on {queueStudentCount} student{queueStudentCount !== 1 ? "s" : ""} currently in queue</div>
             </div>
 
             {/* Join Queue Button */}
-            <button className="join-queue-btn">
-              Join Queue
+            <button 
+              className={`join-queue-btn ${isInQueue ? 'in-queue' : ''}`}
+              onClick={handleJoinQueue}
+              disabled={isInQueue}
+            >
+              {isInQueue ? 'Already in Queue' : 'Join Queue'}
             </button>
           </div>
 
@@ -179,13 +427,69 @@ export default function StudentDashboard() {
           </div>
         </div>
 
+        {/* Real-Time Queue Status that is only shown when in queue */}
+        {isInQueue && (
+          <div className="real-time-queue-section">
+            <div className="queue-header">
+              <h2 className="queue-title">Real-Time Queue Status</h2>
+              <div className="live-indicator">
+                <span className="live-dot"></span>
+                <span className="live-text">Live</span>
+              </div>
+            </div>
+
+            <div className="queue-status-cards">
+              <div className="queue-card position-card">
+                <div className="card-label">Current Position</div>
+                <div className="card-value position-value">#{studentPosition || 0}</div>
+                <div className="card-subtext">out of {queueStudentCount} students</div>
+              </div>
+
+              <div className="queue-card wait-time-card-alt">
+                <div className="card-label">Est. Wait Time</div>
+                <div className="card-value wait-value">{studentPosition && studentPosition > 0 ? studentPosition * 4 : 0}</div>
+                <div className="card-subtext">minutes remaining</div>
+              </div>
+            </div>
+
+            <div className="queue-details">
+              <div className="queue-detail-row">
+                <span className="detail-label">Course</span>
+                <span className="detail-value">{selectedCourse.split(' – ')[0]} – Data Structures</span>
+              </div>
+              <div className="queue-detail-row">
+                <span className="detail-label">TA</span>
+                <span className="detail-value">{selectedCourse.split(' – ')[2]?.split(' (')[0] || 'Estefania Rodriguez'}</span>
+              </div>
+              <div className="queue-detail-row">
+                <span className="detail-label">Time Joined</span>
+                <span className="detail-value">{timeJoined}</span>
+              </div>
+            </div>
+
+            <div className="queue-notification">
+              <div className="notification-icon-circle">
+                <span className="notification-icon-text">ⓘ</span>
+              </div>
+              <div className="notification-text">
+                <strong>You'll receive a notification when you're next in line.</strong>
+                <div className="notification-subtext">Make sure to stay nearby and keep notifications enabled.</div>
+              </div>
+            </div>
+
+            <button className="leave-queue-btn" onClick={handleLeaveQueue}>
+              <span className="leave-icon">↗</span> Cancel & Leave Queue
+            </button>
+          </div>
+        )}
+
         {/* Weekly Schedule */}
         <div className="weekly-schedule">
           <div className="schedule-header">
             <h2 className="schedule-title">This Week's Office Hours</h2>
             <div className="schedule-date">
               <img src={orangeDateIcon} alt="Calendar" className="calendar-icon-small" />
-              Week of Feb 16 - Feb 20
+              {getWeekRange()}
             </div>
           </div>
 
