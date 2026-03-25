@@ -100,6 +100,11 @@ func StreamQueueEvents(hub *Hub) http.HandlerFunc {
 			return
 		}
 
+		// Send initial bytes so headers are flushed immediately
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(": connected\n\n"))
+		flusher.Flush()
+
 		ctx := r.Context()
 		events := hub.Subscribe(ctx, queueID)
 

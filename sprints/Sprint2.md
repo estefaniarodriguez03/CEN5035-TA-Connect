@@ -36,11 +36,51 @@
   * Displays the TA dashboard: Verifies that the TA dashboard loads
   * Navigates to the queue when Start Office Hours Live Queue is clicked: Verifies that clicking the Start Office Hours Live Queue button loads the Queue Management page
 
-### Unit Tests
-* ...
+### Backend Go tests (`backend/api_e2e_test.go`)
 
-## List unit tests for backend
-* ...
+- **`TestRegisterAndLoginStudentAndTA`**
+  - **Register student**: `POST /api/register` → expects **200 OK** and user role `student`
+  - **Register TA**: `POST /api/register` → expects **200 OK** and user role `ta`
+  - **Login student**: `POST /api/login` → expects **200 OK**
+  - **Login TA**: `POST /api/login` → expects **200 OK**
+
+- **`TestRegister_DuplicateUsernameOrEmail`**
+  - **Duplicate email**: second `POST /api/register` with same email → expects **409 Conflict**
+  - **Duplicate username**: second `POST /api/register` with same username → expects **409 Conflict**
+
+- **`TestRegister_InvalidRole_Returns400`**
+  - **Invalid role**: `POST /api/register` with role not in `{student, ta}` → expects **400 Bad Request**
+
+- **`TestLogin_WrongPassword_Returns401`**
+  - **Wrong password**: `POST /api/login` with incorrect password → expects **401 Unauthorized**
+
+- **`TestProtectedEndpoints_MissingToken_Return401`**
+  - **Create queue without token**: `POST /api/queues` → expects **401 Unauthorized**
+  - **Join/Next without token**: calls `/join` and `/next` without `Authorization`
+
+- **`TestQueueLifecycle_HappyPath`**
+  - **Create queue (TA)**: `POST /api/queues` → expects **201 Created**
+  - **Join queue (student)**: `POST /api/queues/{id}/join` → expects **201 Created**
+  - **Get queue shows entry**: `GET /api/queues/{id}` → expects **200 OK** and `entries` length is **1**
+  - **Serve next student (TA)**: `POST /api/queues/{id}/next` → expects **200 OK**
+  - **Get queue shows empty**: `GET /api/queues/{id}` → expects `entries` length is **0**
+
+- **`TestRoleEnforcement_StudentCannotCreateQueueOrNext`**
+  - **Student cannot create queue**: `POST /api/queues` with student token → expects **403 Forbidden**
+  - **Student cannot advance queue**: `POST /api/queues/{id}/next` with student token → expects **403 Forbidden**
+
+- **`TestQueueJoinLeave_Errors`**
+  - **Join non-existent queue**: `POST /api/queues/999999/join` → expects **404 Not Found**
+  - **Leave non-existent queue**: `POST /api/queues/999999/leave` → expects **404 Not Found**
+
+- **`TestQueueEdgeCases_DuplicateJoin_LeaveNotInQueue_NextEmpty`**
+  - **Duplicate join**: joining the same queue twice → expects **409 Conflict**
+  - **Leave when not in queue**: `POST /api/queues/{id}/leave` as a student not in the queue → expects **404 Not Found**
+  - **Next on empty queue**: after serving the only student, calling `/next` again → expects **404 Not Found**
+
+- **`TestSSE_EmitsStudentJoinedEvent`**
+  - **SSE smoke test**: connects to `GET /api/queues/{id}/events`, then triggers a join
+  - **Expectation**: receives `event: STUDENT_JOINED` on the SSE stream
 
 ## Add documentation for your backend API 
 Go API server with PostgreSQL.
@@ -188,4 +228,17 @@ Then use the token for protected endpoints:
 $headers = @{ Authorization = "Bearer $TOKEN" }
 # Example:
 # Invoke-RestMethod -Method POST -Uri "http://localhost:8080/api/queues/2/next" -Headers $headers
+```
+
+### How to run Backend API tests
+
+## 1. Have server running
+
+Done with steps above
+
+## 2. Run backend script
+
+Run the terminal command in the backend directory
+```powershell
+go test -v .
 ```
