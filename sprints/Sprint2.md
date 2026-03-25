@@ -20,7 +20,21 @@
 
 ## List unit tests and Cypress tests for frontend
 ### Cypress Tests
-* ...
+* Visit TA Connect Home Page: Verifies that the app loads successfully at the root URL
+* Login Page:
+  * Displays the login form: Verifies that the email input, password input, and login button are visible
+  * Shows an error for invalid credentials: Verifies that an error message appears when wrong credentials are submitted
+  * Has a link to the register page: Verifies that clicking the Register link navigates to /register
+* Register Page
+  * Displays the registration form: Verifies that the name, email, password inputs and role dropdown are visible
+  * Can select TA role: Verifies that the role dropdown can be changed to TA
+  * Defaults to student role: Verifies that the role dropdown defaults to Student
+  * Has a link back to the login page: Verifies that clicking the Login link navigates back to /login
+* Student Dashboard
+  * Displays the student dashboard: Verifies that the student dashboard loads
+* TA Dashboard
+  * Displays the TA dashboard: Verifies that the TA dashboard loads
+  * Navigates to the queue when Start Office Hours Live Queue is clicked: Verifies that clicking the Start Office Hours Live Queue button loads the Queue Management page
 
 ### Unit Tests
 * ...
