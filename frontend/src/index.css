@@ -808,6 +808,242 @@ body {
   background-color: var(--bottlebrush);
 }
 
+.join-queue-btn.in-queue {
+  background-color: var(--core-orange);
+  color: var(--white);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.join-queue-btn.in-queue:hover {
+  background-color: var(--core-orange);
+}
+
+.join-queue-btn:disabled {
+  cursor: not-allowed;
+}
+
+.real-time-queue-section {
+  background: linear-gradient(135deg, var(--core-blue) 0%, var(--dark-blue) 100%);
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.queue-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--white);
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.15);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--gator);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.live-text {
+  color: var(--white);
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.queue-status-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.queue-card {
+  background-color: var(--white);
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.card-label {
+  color: var(--cool-grey-8);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin-bottom: 1rem;
+}
+
+.position-card .card-label {
+  color: var(--core-orange);
+}
+
+.wait-time-card-alt .card-label {
+  color: var(--core-blue);
+}
+
+.card-value {
+  font-size: 3rem;
+  font-weight: 700;
+  font-family: 'Anybody', 'IBM Plex Sans', sans-serif;
+  margin-bottom: 0.5rem;
+  line-height: 1;
+}
+
+.position-value {
+  color: var(--core-blue);
+}
+
+.wait-value {
+  color: var(--core-orange);
+}
+
+.card-subtext {
+  color: var(--cool-grey-8);
+  font-size: 0.875rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.position-card .card-subtext {
+  color: var(--core-orange);
+}
+
+.wait-time-card-alt .card-subtext {
+  color: var(--core-blue);
+}
+
+.queue-details {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.queue-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--cool-grey-3);
+}
+
+.queue-detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  color: var(--gator);
+  font-weight: 600;
+  font-size: 0.875rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.detail-value {
+  color: var(--cool-grey-11);
+  font-size: 0.875rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  text-align: right;
+}
+
+.queue-notification {
+  background-color: rgba(250, 176, 5, 0.15);
+  border: 1px solid var(--alachua);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.notification-icon-circle {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-icon-text {
+  color: var(--alachua);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.notification-text {
+  flex: 1;
+  color: var(--white);
+  font-size: 0.875rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.notification-text strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+.notification-subtext {
+  opacity: 0.9;
+  font-size: 0.8rem;
+}
+
+.leave-queue-btn {
+  width: 100%;
+  background-color: transparent;
+  color: var(--core-orange);
+  border: 2px solid var(--core-orange);
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.leave-queue-btn:hover {
+  background-color: var(--core-orange);
+  color: var(--white);
+}
+
+.leave-icon {
+  font-size: 1.25rem;
+  transform: rotate(45deg);
+  display: inline-block;
+}
+
 .weekly-schedule {
   background: linear-gradient(135deg, var(--core-blue) 0%, var(--dark-blue) 100%);
   border-radius: 12px;

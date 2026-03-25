@@ -29,6 +29,8 @@ export default function StudentDashboard() {
   const [selectedCourse, setSelectedCourse] = useState(
     "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
   );
+  const [isInQueue, setIsInQueue] = useState(false);
+  const [timeJoined, setTimeJoined] = useState<string>("");
 
   // Mock data for now we will replace with actual API calls later
   const courseOptions = [
@@ -74,6 +76,23 @@ export default function StudentDashboard() {
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
+  const getWeekRange = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(today);
+    monday.setDate(monday.getDate() - daysToMonday);
+    
+    const friday = new Date(monday);
+    friday.setDate(friday.getDate() + 4);
+    
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mondayMonth = monthNames[monday.getMonth()];
+    const fridayMonth = monthNames[friday.getMonth()];
+    
+    return `Week of ${mondayMonth} ${monday.getDate()} - ${fridayMonth} ${friday.getDate()}`;
+  };
+
   const getStatusClass = (status: string) => {
     switch (status) {
       case "Live":
@@ -85,6 +104,19 @@ export default function StudentDashboard() {
       default:
         return "";
     }
+  };
+
+  const handleJoinQueue = () => {
+    const now = new Date();
+    const displayHours = (now.getHours() % 12) || 12;
+    const displayMinutes = now.getMinutes().toString().padStart(2, '0');
+    const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
+    setTimeJoined(`${displayHours}:${displayMinutes} ${ampm}`);
+    setIsInQueue(true);
+  };
+
+  const handleLeaveQueue = () => {
+    setIsInQueue(false);
   };
 
   return (
@@ -128,6 +160,7 @@ export default function StudentDashboard() {
                 className="course-dropdown"
                 value={selectedCourse}
                 onChange={(e) => setSelectedCourse(e.target.value)}
+                disabled={isInQueue}
               >
                 {courseOptions.map((course, index) => (
                   <option key={index} value={course}>
@@ -148,8 +181,12 @@ export default function StudentDashboard() {
             </div>
 
             {/* Join Queue Button */}
-            <button className="join-queue-btn">
-              Join Queue
+            <button 
+              className={`join-queue-btn ${isInQueue ? 'in-queue' : ''}`}
+              onClick={handleJoinQueue}
+              disabled={isInQueue}
+            >
+              {isInQueue ? 'Already in Queue' : 'Join Queue'}
             </button>
           </div>
 
@@ -179,13 +216,69 @@ export default function StudentDashboard() {
           </div>
         </div>
 
+        {/* Real-Time Queue Status that is only shown when in queue */}
+        {isInQueue && (
+          <div className="real-time-queue-section">
+            <div className="queue-header">
+              <h2 className="queue-title">Real-Time Queue Status</h2>
+              <div className="live-indicator">
+                <span className="live-dot"></span>
+                <span className="live-text">Live</span>
+              </div>
+            </div>
+
+            <div className="queue-status-cards">
+              <div className="queue-card position-card">
+                <div className="card-label">Current Position</div>
+                <div className="card-value position-value">#4</div>
+                <div className="card-subtext">out of 6 students</div>
+              </div>
+
+              <div className="queue-card wait-time-card-alt">
+                <div className="card-label">Est. Wait Time</div>
+                <div className="card-value wait-value">16</div>
+                <div className="card-subtext">minutes remaining</div>
+              </div>
+            </div>
+
+            <div className="queue-details">
+              <div className="queue-detail-row">
+                <span className="detail-label">Course</span>
+                <span className="detail-value">{selectedCourse.split(' – ')[0]} – Data Structures</span>
+              </div>
+              <div className="queue-detail-row">
+                <span className="detail-label">TA</span>
+                <span className="detail-value">{selectedCourse.split(' – ')[2]?.split(' (')[0] || 'Estefania Rodriguez'}</span>
+              </div>
+              <div className="queue-detail-row">
+                <span className="detail-label">Time Joined</span>
+                <span className="detail-value">{timeJoined}</span>
+              </div>
+            </div>
+
+            <div className="queue-notification">
+              <div className="notification-icon-circle">
+                <span className="notification-icon-text">ⓘ</span>
+              </div>
+              <div className="notification-text">
+                <strong>You'll receive a notification when you're next in line.</strong>
+                <div className="notification-subtext">Make sure to stay nearby and keep notifications enabled.</div>
+              </div>
+            </div>
+
+            <button className="leave-queue-btn" onClick={handleLeaveQueue}>
+              <span className="leave-icon">↗</span> Cancel & Leave Queue
+            </button>
+          </div>
+        )}
+
         {/* Weekly Schedule */}
         <div className="weekly-schedule">
           <div className="schedule-header">
             <h2 className="schedule-title">This Week's Office Hours</h2>
             <div className="schedule-date">
               <img src={orangeDateIcon} alt="Calendar" className="calendar-icon-small" />
-              Week of Feb 16 - Feb 20
+              {getWeekRange()}
             </div>
           </div>
 
