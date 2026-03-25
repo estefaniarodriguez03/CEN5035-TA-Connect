@@ -16,6 +16,11 @@ type CreateQueueRequest struct {
 	CourseID int `json:"course_id"`
 }
 
+// UpdateQueueStatusRequest is the JSON body for POST /api/queues/{id}/status.
+type UpdateQueueStatusRequest struct {
+	Status string `json:"status"`
+}
+
 // CreateQueue handles POST /api/queues. TA creates a new queue; requires auth and role=ta.
 func CreateQueue(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -316,6 +321,74 @@ func Next(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+// UpdateStatus handles POST /api/queues/{id}/status.
+// TA owner can set status to open, paused, or closed.
+func UpdateStatus(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		claims, err := auth.GetClaimsFromRequest(r)
+		if err != nil || claims == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
+			return
+		}
+		if claims.Role != "ta" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can update queue status"})
+			return
+		}
+
+		queueID, err := parseQueueID(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			return
+		}
+
+		var req UpdateQueueStatusRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+
+		if req.Status != "open" && req.Status != "paused" && req.Status != "closed" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid status"})
+			return
+		}
+
+		var taID int
+		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM queues WHERE id = $1`, queueID).Scan(&taID)
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		if taID != claims.UserID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can update this queue"})
+			return
+		}
+
+		if _, err := db.ExecContext(r.Context(), `UPDATE queues SET status = $2 WHERE id = $1`, queueID, req.Status); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventQueueUpdated,
+			QueueID: queueID,
+		})
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":     queueID,
+			"status": req.Status,
+		})
+	}
+}
+
 // Entry is one queue entry for API response.
 type Entry struct {
 	ID        int    `json:"id"`
@@ -395,8 +468,88 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+// GetActiveQueueByCourse handles GET /api/queues/active?course_id={id}.
+// Returns the latest open queue for a course, including entries.
+func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		courseID, err := parseCourseIDFromQuery(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
+			return
+		}
+
+		var id, taID int
+		var status, createdAt string
+		err = db.QueryRowContext(r.Context(), `
+			SELECT id, ta_id, status, created_at::text
+			FROM queues
+			WHERE course_id = $1 AND status = 'open'
+			ORDER BY created_at DESC
+			LIMIT 1
+		`, courseID).Scan(&id, &taID, &status, &createdAt)
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active queue for course"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
+		rows, err := db.QueryContext(r.Context(), `
+			SELECT qe.id, qe.queue_id, qe.student_id, qe.position, qe.joined_at::text, u.username
+			FROM queue_entries qe
+			JOIN users u ON u.id = qe.student_id
+			WHERE qe.queue_id = $1
+			ORDER BY qe.position ASC, qe.joined_at ASC
+		`, id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		defer rows.Close()
+
+		var entries []Entry
+		for rows.Next() {
+			var e Entry
+			var username string
+			if err := rows.Scan(&e.ID, &e.QueueID, &e.StudentID, &e.Position, &e.JoinedAt, &username); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				return
+			}
+			e.Username = username
+			entries = append(entries, e)
+		}
+		if entries == nil {
+			entries = []Entry{}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":         id,
+			"course_id":  courseID,
+			"ta_id":      taID,
+			"status":     status,
+			"created_at": createdAt,
+			"entries":    entries,
+		})
+	}
+}
+
 func parseQueueID(r *http.Request) (int, error) {
 	s := chi.URLParam(r, "id")
+	if s == "" {
+		return 0, strconv.ErrSyntax
+	}
+	return strconv.Atoi(s)
+}
+
+func parseCourseIDFromQuery(r *http.Request) (int, error) {
+	s := r.URL.Query().Get("course_id")
 	if s == "" {
 		return 0, strconv.ErrSyntax
 	}

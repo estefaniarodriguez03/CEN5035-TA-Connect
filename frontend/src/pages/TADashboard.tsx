@@ -9,6 +9,7 @@ import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueStatus } from "../api/queue";
 
 interface QueueStudent {
   id: number;
@@ -24,6 +25,8 @@ interface OfficeHour {
   day: string;
   time: string;
   course: string;
+  courseCode: string;
+  courseID: number;
 }
 
 export default function TADashboard() {
@@ -32,88 +35,233 @@ export default function TADashboard() {
   const [queueStatus, setQueueStatus] = useState<'closed' | 'open' | 'paused'>('closed');
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementText, setAnnouncementText] = useState('');
-  const [queueStudents, setQueueStudents] = useState<QueueStudent[]>([
-    { id: 1, position: 1, name: 'Sarah Johnson', waitTime: '28 min', joinedAt: new Date(Date.now() - 28 * 60000), topic: 'Linked Lists' },
-    { id: 2, position: 2, name: 'Michael Chen', waitTime: '22 min', joinedAt: new Date(Date.now() - 22 * 60000), topic: 'Binary Trees' },
-    { id: 3, position: 3, name: 'Emily Rodriguez', waitTime: '18 min', joinedAt: new Date(Date.now() - 18 * 60000), topic: 'Hash Tables' },
-    { id: 4, position: 4, name: 'David Park', waitTime: '12 min', joinedAt: new Date(Date.now() - 12 * 60000), topic: 'Graph Algorithms' },
-    { id: 5, position: 5, name: 'Jessica Williams', waitTime: '5 min', joinedAt: new Date(Date.now() - 5 * 60000), topic: 'Dynamic Programming' },
-  ]);
+  const [queueStudents, setQueueStudents] = useState<QueueStudent[]>([]);
+  const [activeQueueID, setActiveQueueID] = useState<number | null>(null);
+  const [activeCourseCode, setActiveCourseCode] = useState<string | null>(null);
+  const [activeOfficeHourTime, setActiveOfficeHourTime] = useState<string | null>(null);
+  const [selectedOfficeHourID, setSelectedOfficeHourID] = useState<number | null>(null);
 
-  const todaySchedule = [
-    { id: 1, time: "11:00 AM - 12:00 PM", course: "COP3530 - Data Structures" },
-    { id: 2, time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures" },
+  // TA dashboard currently operates on one selected office hour at a time.
+
+  const getWaitMinutes = (joinedAt: Date): number => {
+    return Math.max(0, Math.floor((Date.now() - joinedAt.getTime()) / 60000));
+  };
+
+  const formatWait = (minutes: number): string => `${minutes} min`;
+
+  const mapQueueEntriesToStudents = (entries: Array<{
+    id: number;
+    position: number;
+    username: string;
+    joined_at: string;
+  }>): QueueStudent[] => {
+    return entries.map((entry) => {
+      const joinedAt = new Date(entry.joined_at);
+      return {
+        id: entry.id,
+        position: entry.position,
+        name: entry.username,
+        joinedAt,
+        waitTime: formatWait(getWaitMinutes(joinedAt)),
+      };
+    });
+  };
+
+  const todaySchedule: OfficeHour[] = [
+    { id: 1, day: "Today", time: "11:00 AM - 1:00 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
+    { id: 2, day: "Today", time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
   ];
 
   const weeklyOfficeHours: OfficeHour[] = [
-    { id: 1, day: "Monday", time: "11:00 AM - 12:00 PM", course: "COP3530 - Data Structures" },
-    { id: 2, day: "Monday", time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures" },
-    { id: 3, day: "Wednesday", time: "2:00 PM - 3:00 PM", course: "COP3530 - Data Structures" },
-    { id: 4, day: "Friday", time: "10:00 AM - 11:30 AM", course: "COP3530 - Data Structures" },
+    { id: 1, day: "Monday", time: "11:00 AM - 1:00 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
+    { id: 2, day: "Monday", time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
+    { id: 3, day: "Wednesday", time: "2:00 PM - 3:00 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
+    { id: 4, day: "Friday", time: "10:00 AM - 11:30 AM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
   ];
+
+  const selectedOfficeHour = todaySchedule.find((slot) => slot.id === selectedOfficeHourID) ?? null;
+
+  const refreshQueueData = async () => {
+    if (!activeQueueID) {
+      setQueueStudents([]);
+      return;
+    }
+    try {
+      const queue = await getQueueOrNull(activeQueueID);
+      if (!queue) {
+        setQueueStudents([]);
+        return;
+      }
+      setQueueStudents(mapQueueEntriesToStudents(queue.entries));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load queue';
+      toast.info(message);
+    }
+  };
 
   const stats = {
     studentsHelped: 12,
-    avgWaitTime: "8 min",
+    avgWaitTime: queueStudents.length === 0
+      ? '0 min'
+      : formatWait(
+          Math.round(
+            queueStudents.reduce((sum, s) => sum + getWaitMinutes(s.joinedAt), 0) / queueStudents.length
+          )
+        ),
     currentQueueLength: queueStatus === 'closed' ? 0 : queueStudents.length,
-    longestWaitTime: queueStatus === 'closed' ? '0 min' : '28 min',
+    longestWaitTime: queueStatus === 'closed' || queueStudents.length === 0
+      ? '0 min'
+      : formatWait(Math.max(...queueStudents.map((s) => getWaitMinutes(s.joinedAt)))),
     mostCommonTopic: "Data Structures",
     avgSessionDuration: "12 min",
   };
 
   const sortedQueue = [...queueStudents].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
 
-  // Simulate students joining queue
+  // Recompute live wait-time labels every 15 seconds.
   useEffect(() => {
     const interval = setInterval(() => {
-      if (Math.random() > 0.7 && queueStatus === 'open') {
-        const newStudent: QueueStudent = {
-          id: Date.now(),
-          position: queueStudents.length + 1,
-          name: `Student ${Math.floor(Math.random() * 1000)}`,
-          waitTime: '0 min',
-          joinedAt: new Date(),
-          topic: 'General Question',
-        };
-        setQueueStudents(prev => [...prev, newStudent]);
-        toast.success(`${newStudent.name} joined the queue`);
-      }
+      setQueueStudents((prev) => prev.map((student) => ({
+        ...student,
+        waitTime: formatWait(getWaitMinutes(student.joinedAt)),
+      })));
     }, 15000);
     return () => clearInterval(interval);
-  }, [queueStudents.length, queueStatus]);
+  }, []);
 
-  const handleOpenQueue = () => {
-    setQueueStatus('open');
-    toast.success('Live Queue is now open - students can join!');
+  // Load queue state when TA opens/pauses queue view.
+  useEffect(() => {
+    if (queueStatus === 'closed' || !activeQueueID) {
+      return;
+    }
+    void refreshQueueData();
+  }, [queueStatus, activeQueueID]);
+
+  // Subscribe to backend queue events for real-time updates while live queue is visible.
+  useEffect(() => {
+    if (queueStatus === 'closed' || !activeQueueID) {
+      return;
+    }
+
+    const unsubscribe = subscribeToQueueEvents(
+      activeQueueID,
+      () => {
+        void refreshQueueData();
+      },
+      () => {
+        // silent reconnect fallback: just poll snapshot once on error
+        void refreshQueueData();
+      }
+    );
+
+    return () => unsubscribe();
+  }, [queueStatus, activeQueueID]);
+
+  // Poll snapshot as a reliability fallback in case SSE drops.
+  useEffect(() => {
+    if (queueStatus === 'closed' || !activeQueueID) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      void refreshQueueData();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [queueStatus, activeQueueID]);
+
+  const handleOpenQueue = async () => {
+    if (!selectedOfficeHour) {
+      toast.info('Select an office hour time before starting the live queue.');
+      return;
+    }
+
+    try {
+      const existing = await getActiveQueueByCourse(selectedOfficeHour.courseID);
+      const queueID = existing?.id ?? (await createQueue(selectedOfficeHour.courseID)).id;
+      setActiveQueueForCourse(selectedOfficeHour.courseCode, queueID);
+      setActiveQueueForOfficeHour(selectedOfficeHour.courseCode, selectedOfficeHour.time, queueID);
+      setActiveQueueID(queueID);
+      setActiveCourseCode(selectedOfficeHour.courseCode);
+      setActiveOfficeHourTime(selectedOfficeHour.time);
+      await updateQueueStatus(queueID, 'open');
+      setQueueStatus('open');
+      void refreshQueueData();
+      toast.success(`Live Queue started for ${selectedOfficeHour.courseCode} ${selectedOfficeHour.time}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start queue';
+      toast.info(message);
+    }
   };
 
-  const handlePauseQueue = () => {
-    setQueueStatus(queueStatus === 'paused' ? 'open' : 'paused');
-    toast.info(queueStatus === 'paused' ? 'Queue reopened' : 'Queue paused');
+  const handlePauseQueue = async () => {
+    if (!activeQueueID) {
+      toast.info('No active queue found.');
+      return;
+    }
+    try {
+      const nextStatus = queueStatus === 'paused' ? 'open' : 'paused';
+      await updateQueueStatus(activeQueueID, nextStatus);
+      if (activeCourseCode && activeOfficeHourTime) {
+        if (nextStatus === 'open') {
+          setActiveQueueForOfficeHour(activeCourseCode, activeOfficeHourTime, activeQueueID);
+        } else {
+          clearActiveQueueForOfficeHour(activeCourseCode, activeOfficeHourTime);
+        }
+      }
+      setQueueStatus(nextStatus);
+      toast.info(nextStatus === 'open' ? 'Queue reopened' : 'Queue paused');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update queue status';
+      toast.info(message);
+    }
   };
 
-  const handleCloseQueue = () => {
-    setQueueStatus('closed');
-    setQueueStudents([]);
-    toast.warning('Queue closed');
+  const handleCloseQueue = async () => {
+    try {
+      if (activeQueueID) {
+        await updateQueueStatus(activeQueueID, 'closed');
+      }
+      if (activeCourseCode) {
+        clearActiveQueueForCourse(activeCourseCode);
+      }
+      if (activeCourseCode && activeOfficeHourTime) {
+        clearActiveQueueForOfficeHour(activeCourseCode, activeOfficeHourTime);
+      }
+      setQueueStatus('closed');
+      setActiveQueueID(null);
+      setActiveCourseCode(null);
+      setActiveOfficeHourTime(null);
+      setQueueStudents([]);
+      toast.warning('Queue closed');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to close queue';
+      toast.info(message);
+    }
   };
 
-  const handleStartSession = (student: QueueStudent) => {
-    toast.success(`Starting session with ${student.name}`, {
-      description: `Topic: ${student.topic}`,
-    });
-    setQueueStudents(prev => {
-      const filtered = prev.filter(s => s.id !== student.id);
-      return filtered.map((s, idx) => ({ ...s, position: idx + 1 }));
-    });
+  const handleStartSession = async (student: QueueStudent) => {
+    if (!activeQueueID) {
+      toast.info('No active queue found.');
+      return;
+    }
+    try {
+      await nextQueueStudent(activeQueueID);
+      await refreshQueueData();
+      toast.success(`Starting session with ${student.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start session';
+      toast.info(message);
+    }
   };
 
-  const handleRemoveStudent = (student: QueueStudent) => {
-    setQueueStudents(prev => {
-      const filtered = prev.filter(s => s.id !== student.id);
-      return filtered.map((s, idx) => ({ ...s, position: idx + 1 }));
-    });
-    toast.info(`${student.name} removed from queue`);
+  const handleRemoveStudent = async (student: QueueStudent) => {
+    const firstStudent = sortedQueue[0];
+    if (!firstStudent || firstStudent.id !== student.id) {
+      toast.info('Only the first student can be advanced at this time.');
+      return;
+    }
+    await handleStartSession(student);
   };
 
   const handleSendAnnouncement = () => {
@@ -147,7 +295,7 @@ export default function TADashboard() {
   );
 
   return (
-    <div className="ta-dashboard" style={{ minHeight: '100vh', width: '100%', display: 'block' }}>
+    <div className="ta-dashboard ta-dashboard-root">
 
       {/* Navbar */}
       <nav className="navbar">
@@ -174,8 +322,9 @@ export default function TADashboard() {
 
       {queueStatus === 'closed' ? (
         // CLOSED STATE - Dashboard view
-        <div className="dashboard-content">
-          <div className="main-section">
+        <>
+        <div className="dashboard-content live-queue-dashboard-content">
+          <div className="main-section queue-live-layout">
 
             {/* Welcome Section */}
             <div className="welcome-section">
@@ -184,7 +333,19 @@ export default function TADashboard() {
               </h1>
               <div className="schedule-cards">
                 {todaySchedule.map((slot) => (
-                  <div key={slot.id} className="schedule-card">
+                  <div
+                    key={slot.id}
+                    className={`schedule-card ${selectedOfficeHourID === slot.id ? 'selected-office-hour' : ''}`}
+                    onClick={() => setSelectedOfficeHourID(slot.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedOfficeHourID(slot.id);
+                      }
+                    }}
+                  >
                     <div className="schedule-time">
                       <img src={orangeClockIcon} alt="Time" className="time-icon" />
                       <span className="time-text">{slot.time}</span>
@@ -193,9 +354,9 @@ export default function TADashboard() {
                   </div>
                 ))}
               </div>
-              <button onClick={handleOpenQueue} className="start-queue-btn">
+              <button onClick={() => void handleOpenQueue()} className="start-queue-btn" disabled={!selectedOfficeHourID}>
                 <span className="play-icon">▶</span>
-                Start Office Hours Live Queue
+                {selectedOfficeHourID ? 'Start Office Hours Live Queue' : 'Select Time to Start Live Queue'}
               </button>
             </div>
 
@@ -245,21 +406,6 @@ export default function TADashboard() {
               </div>
             </div>
 
-            {/* Announcements */}
-            <div className="announcements-section">
-              <div className="announcements-content">
-                <div className="announcements-text">
-                  <img src={blueMessageIcon} alt="Announcements" className="announcement-icon" />
-                  <div>
-                    <h3>Send Announcements to Your Students</h3>
-                    <p>Broadcast messages to all students enrolled in your courses</p>
-                  </div>
-                </div>
-                <button className="send-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
-                  Send Announcement
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Sidebar */}
@@ -270,55 +416,56 @@ export default function TADashboard() {
             </div>
           </aside>
         </div>
+
+        {/* Announcements - Full Width */}
+        <div className="announcements-section dashboard-announcements-full-width">
+          <div className="announcements-content">
+            <div className="announcements-text">
+              <img src={blueMessageIcon} alt="Announcements" className="announcement-icon" />
+              <div>
+                <h3>Send Announcements to Your Students</h3>
+                <p>Broadcast messages to all students enrolled in your courses</p>
+              </div>
+            </div>
+            <button className="send-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
+              Send Announcement
+            </button>
+          </div>
+        </div>
+        </>
       ) : (
         // OPEN/PAUSED STATE - Live queue view
         <div className="dashboard-content">
           <div className="main-section">
 
             {/* Queue Header */}
-            <div className="welcome-section" style={{ padding: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div className="welcome-section live-queue-header-section">
+              <div className="live-queue-header-row">
                 <div>
-                  <h1 className="welcome-title" style={{ marginBottom: '0.5rem' }}>Live Queue</h1>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <div style={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      backgroundColor: queueStatus === 'open' ? 'var(--gator)' : 'var(--alachua)',
-                      flexShrink: 0
-                    }} />
-                    <span style={{ color: 'var(--white)', fontFamily: 'IBM Plex Sans, sans-serif', fontSize: '0.95rem' }}>
-                      {queueStatus === 'open' ? 'Open - Accepting Students' : 'Paused - Not Accepting New Students'}
+                  <h1 className="welcome-title live-queue-title">Live Queue</h1>
+                  <div className="live-queue-status-row">
+                    <div className={`live-queue-status-dot ${queueStatus === 'open' ? 'is-open' : 'is-paused'}`} />
+                    <span className="live-queue-status-text">
+                      {queueStatus === 'open' ? 'Open - Accepting Students' : 'Paused - No New Students'}
                     </span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <div className="live-queue-action-row">
                   <button
                     onClick={handlePauseQueue}
-                    style={{
-                      backgroundColor: queueStatus === 'paused' ? 'var(--gator)' : 'var(--alachua)',
-                      color: queueStatus === 'paused' ? 'var(--white)' : 'var(--black)',
-                      border: 'none', borderRadius: 8,
-                      padding: '0.625rem 1.25rem',
-                      fontWeight: 600, fontFamily: 'IBM Plex Sans, sans-serif', cursor: 'pointer',
-                    }}
+                    className={`queue-action-btn pause-btn ${queueStatus === 'paused' ? 'paused' : 'open'}`}
                   >
                     {queueStatus === 'paused' ? 'Resume Queue' : 'Pause Queue'}
                   </button>
                   <button
                     onClick={handleCloseQueue}
-                    style={{
-                      backgroundColor: 'var(--bottlebrush)', color: 'var(--white)',
-                      border: 'none', borderRadius: 8,
-                      padding: '0.625rem 1.25rem',
-                      fontWeight: 600, fontFamily: 'IBM Plex Sans, sans-serif', cursor: 'pointer',
-                    }}
+                    className="queue-action-btn close-btn"
                   >
                     Close Queue
                   </button>
                   <button
-                    className="send-announcement-btn"
+                    className="send-announcement-btn live-send-announcement-btn"
                     onClick={() => setShowAnnouncementModal(true)}
-                    style={{ padding: '0.625rem 1.25rem', fontSize: '1rem' }}
                   >
                     Send Announcement
                   </button>
@@ -327,7 +474,7 @@ export default function TADashboard() {
             </div>
 
             {/* Queue Stats */}
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="stats-grid live-queue-stats-grid">
               <div className="stat-card blue">
                 <div className="stat-header">
                   <img src={orangeGroupIcon} alt="Students" className="stat-icon" />
@@ -352,42 +499,37 @@ export default function TADashboard() {
             </div>
 
             {/* Queue List */}
-            <div className="sidebar-content" style={{ borderRadius: 12 }}>
+            <div className="sidebar-content queue-list-panel">
               <h2 className="sidebar-title">Students in Queue ({sortedQueue.length})</h2>
-              {sortedQueue.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--cool-grey-3)' }}>
-                  <p style={{ fontSize: '1.25rem', fontFamily: 'IBM Plex Sans, sans-serif' }}>No students in queue</p>
-                  <p style={{ fontSize: '0.875rem', marginTop: '0.5rem', fontFamily: 'IBM Plex Sans, sans-serif' }}>
-                    Students will appear here when they join
-                  </p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div className="queue-list-scroll-region">
+                {sortedQueue.length === 0 ? (
+                  <div className="queue-empty-state">
+                    <p className="queue-empty-title">No students in queue</p>
+                    <p className="queue-empty-subtitle">
+                      Students will appear here when they join
+                    </p>
+                  </div>
+                ) : (
+                  <div className="queue-students-list">
                   {sortedQueue.map((student, index) => (
                     <div key={student.id} className="office-hour-card">
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                          <div style={{
-                            width: 48, height: 48, borderRadius: '50%',
-                            backgroundColor: 'var(--core-blue)', color: 'var(--white)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontWeight: 700, fontSize: '1.25rem', flexShrink: 0,
-                            fontFamily: 'Anybody, IBM Plex Sans, sans-serif',
-                          }}>
+                      <div className="queue-student-row">
+                        <div className="queue-student-left">
+                          <div className="queue-student-position-badge">
                             {index + 1}
                           </div>
                           <div>
-                            <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--cool-grey-11)', fontFamily: 'IBM Plex Sans, sans-serif', marginBottom: '0.25rem' }}>
+                            <div className="queue-student-name">
                               {student.name}
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.875rem', color: 'var(--cool-grey-11)', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                            <div className="queue-student-meta">
+                              <span className="queue-student-wait">
                                 Waiting {student.waitTime}
                               </span>
                               {student.topic && (
                                 <>
-                                  <span style={{ color: 'var(--cool-grey-3)' }}>•</span>
-                                  <span style={{ fontSize: '0.875rem', color: 'var(--core-orange)', fontWeight: 600, fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                                  <span className="queue-topic-separator">•</span>
+                                  <span className="queue-student-topic">
                                     {student.topic}
                                   </span>
                                 </>
@@ -395,20 +537,18 @@ export default function TADashboard() {
                             </div>
                           </div>
                         </div>
-                        <div className="office-hour-actions" style={{ flexWrap: 'nowrap', width: 'auto' }}>
+                        <div className="office-hour-actions queue-student-actions">
                           {index === 0 && (
                             <button
                               onClick={() => handleStartSession(student)}
-                              className="start-queue-btn"
-                              style={{ width: 'auto', padding: '0.625rem 1.5rem', fontSize: '0.95rem' }}
+                              className="start-queue-btn queue-start-session-btn"
                             >
                               Start Session
                             </button>
                           )}
                           <button
                             onClick={() => handleRemoveStudent(student)}
-                            className="cancel-btn"
-                            style={{ border: '2px solid var(--bottlebrush)', borderRadius: 8, padding: '0.625rem 1rem' }}
+                            className="cancel-btn queue-remove-btn"
                           >
                             Remove
                           </button>
@@ -416,28 +556,28 @@ export default function TADashboard() {
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Sidebar */}
           <aside className="sidebar">
-            <div className="sidebar-content" style={{ marginBottom: '1.5rem' }}>
+            <div className="sidebar-content live-sidebar-office-hours">
               <h2 className="sidebar-title">This Week's Office Hours</h2>
               {officeHoursSidebar}
             </div>
-            <div className="announcements-section" style={{ borderRadius: 12 }}>
-              <div style={{ marginBottom: '1rem' }}>
-                <h3 style={{ fontFamily: 'IBM Plex Sans, sans-serif', fontWeight: 600, fontSize: '1.125rem', color: 'var(--white)' }}>
+            <div className="announcements-section live-sidebar-announcements">
+              <div className="live-announcements-header">
+                <h3 className="live-announcements-title">
                   Announcements
                 </h3>
-                <p style={{ fontSize: '0.875rem', color: 'var(--white)', opacity: 0.9, marginTop: '0.25rem', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                <p className="live-announcements-subtitle">
                   Send updates to all students in the queue
                 </p>
               </div>
-              <button className="send-announcement-btn" onClick={() => setShowAnnouncementModal(true)}
-                style={{ width: '100%' }}>
+              <button className="send-announcement-btn full-width-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
                 Send Announcement
               </button>
             </div>
@@ -447,25 +587,19 @@ export default function TADashboard() {
 
       {/* Announcement Modal */}
       {showAnnouncementModal && (
-        <div style={{
-          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
-        }}>
-          <div style={{ background: 'var(--white)', borderRadius: 12, maxWidth: 480, width: '100%', margin: '0 1rem', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.3)' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, var(--core-blue) 0%, var(--dark-blue) 100%)',
-              padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
-              <h3 style={{ color: 'var(--white)', fontSize: '1.25rem', fontWeight: 600, fontFamily: 'IBM Plex Sans, sans-serif' }}>
+        <div className="announcement-modal-overlay">
+          <div className="announcement-modal-card">
+            <div className="announcement-modal-header">
+              <h3 className="announcement-modal-title">
                 Send Announcement
               </h3>
               <button onClick={() => setShowAnnouncementModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--white)', cursor: 'pointer', fontSize: '1.25rem' }}>
+                className="announcement-modal-close-btn">
                 ✕
               </button>
             </div>
-            <div style={{ padding: '1.5rem' }}>
-              <p style={{ color: 'var(--cool-grey-11)', marginBottom: '1rem', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+            <div className="announcement-modal-body">
+              <p className="announcement-modal-description">
                 {queueStatus === 'closed'
                   ? 'Send a message to all students in your course'
                   : `Send a message to all ${queueStudents.length} students currently in the queue`}
@@ -474,33 +608,25 @@ export default function TADashboard() {
                 value={announcementText}
                 onChange={(e) => setAnnouncementText(e.target.value)}
                 placeholder="e.g., Running 10 minutes late, extending office hours by 30 minutes..."
-                style={{
-                  width: '100%', border: '1px solid var(--cool-grey-3)', borderRadius: 8,
-                  padding: '0.75rem', minHeight: 120, fontFamily: 'IBM Plex Sans, sans-serif',
-                  fontSize: '0.95rem', color: 'var(--cool-grey-11)', resize: 'vertical', boxSizing: 'border-box',
-                }}
+                className="announcement-modal-textarea"
               />
-              <div style={{ background: '#e3f2fd', border: '1px solid #bbdefb', borderRadius: 8, padding: '0.75rem', marginTop: '1rem' }}>
-                <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--cool-grey-11)', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+              <div className="announcement-example-box">
+                <p className="announcement-example-title">
                   Example announcements:
                 </p>
-                <ul style={{ fontSize: '0.875rem', color: 'var(--cool-grey-11)', marginTop: '0.5rem', paddingLeft: '1.25rem', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                <ul className="announcement-example-list">
                   <li>Running 10 minutes late</li>
                   <li>Office hours canceled today</li>
                   <li>Extending office hours by 30 minutes</li>
                 </ul>
               </div>
-              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+              <div className="announcement-modal-actions">
                 <button onClick={() => setShowAnnouncementModal(false)}
-                  style={{
-                    flex: 1, padding: '0.75rem', border: '1px solid var(--cool-grey-3)',
-                    borderRadius: 8, fontWeight: 600, fontFamily: 'IBM Plex Sans, sans-serif',
-                    cursor: 'pointer', background: 'var(--white)', color: 'var(--cool-grey-11)',
-                  }}>
+                  className="announcement-cancel-btn">
                   Cancel
                 </button>
-                <button onClick={handleSendAnnouncement} className="start-queue-btn"
-                  style={{ flex: 1, padding: '0.75rem', fontSize: '1rem' }}>
+                <button onClick={handleSendAnnouncement}
+                  className="start-queue-btn announcement-send-all-btn">
                   Send to All
                 </button>
               </div>
