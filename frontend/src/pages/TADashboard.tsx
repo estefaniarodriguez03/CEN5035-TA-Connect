@@ -5,8 +5,9 @@ import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import orangeGroupIcon from "../images/Orange Group Icon.png";
 import orangeQuestionIcon from "../images/Orange Question Mark Icon.png";
-import whiteNotificationIcon from "../images/White Notification Icon.png";
-import whiteProfileIcon from "../images/White Profile Icon.png";
+import { useState } from 'react';
+import { QueuePage } from './QueuePage';
+import TALayout from "../components/TALayout";
 
 interface OfficeHour {
   id: number;
@@ -22,9 +23,9 @@ interface TimeSlot {
 }
 
 export default function TADashboard() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'office-hours' | 'queue'>('dashboard');
 
-  // Mock data for now we will replace with actual API calls later
   const todaySchedule: TimeSlot[] = [
     { id: 1, time: "11:00 AM - 12:00 PM", course: "COP3530 - Data Structures" },
     { id: 2, time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures" },
@@ -46,41 +47,49 @@ export default function TADashboard() {
     avgSessionDuration: "5 min",
   };
 
-  return (
-    <div className="ta-dashboard">
-      {/* Navigation Bar */}
-      <nav className="navbar">
-        <div className="navbar-left">
-          <div className="logo">
-            <img src={ufLogo} alt="UF Logo" className="logo-icon" />
-            <span className="logo-text">TA Connect</span>
+  const sidebar = (
+    <div className="sidebar-content">
+      <h2 className="sidebar-title">This Week's Office Hours</h2>
+      <div className="office-hours-list">
+        {weeklyOfficeHours.map((hour) => (
+          <div key={hour.id} className="office-hour-card">
+            <div className="office-hour-day">
+              <img src={orangeDateIcon} alt="Date" className="calendar-icon" />
+              <span>{hour.day}</span>
+            </div>
+            <div className="office-hour-time">
+              <img src={orangeClockIcon} alt="Time" className="time-icon" />
+              <span>{hour.time}</span>
+            </div>
+            <div className="office-hour-course">{hour.course}</div>
+            <div className="office-hour-actions">
+              <button className="modify-btn">Modify</button>
+              <button className="cancel-btn">Cancel</button>
+            </div>
           </div>
-          <div className="nav-tabs">
-            <button className="nav-tab active">Dashboard</button>
-            <button className="nav-tab">My Office Hours</button>
-            <button className="nav-tab">Queue</button>
-          </div>
-        </div>
-        <div className="navbar-right">
-          <div className="notification-icon">
-            <img src={whiteNotificationIcon} alt="Notifications" />
-          </div>
-          <button className="profile-icon" onClick={logout}>
-            <img src={whiteProfileIcon} alt="Profile" />
-          </button>
-        </div>
-      </nav>
+        ))}
+      </div>
+    </div>
+  );
 
-      {/* Main Content */}
-      <div className="dashboard-content">
+  return (
+    <TALayout
+      activeTab={activeTab}
+      onTabChange={(tab) => {
+        if (tab === 'queue') setActiveTab('queue');
+        else setActiveTab(tab);
+      }}
+      sidebar={sidebar}
+    >
+      {activeTab === 'queue' ? (
+        <QueuePage onEndSession={() => setActiveTab('dashboard')} />
+      ) : (
         <div className="main-section">
           {/* Welcome Header */}
           <div className="welcome-section">
             <h1 className="welcome-title">
               Welcome Back, {user?.username || "Lovely TA"}! Here is your Schedule for the Day
             </h1>
-
-            {/* Today's Schedule */}
             <div className="schedule-cards">
               {todaySchedule.map((slot) => (
                 <div key={slot.id} className="schedule-card">
@@ -92,9 +101,7 @@ export default function TADashboard() {
                 </div>
               ))}
             </div>
-
-            {/* Start Queue Button */}
-            <button className="start-queue-btn">
+            <button onClick={() => setActiveTab('queue')} className="start-queue-btn">
               <span className="play-icon">▶</span>
               Start Office Hours Live Queue
             </button>
@@ -109,7 +116,6 @@ export default function TADashboard() {
               </div>
               <div className="stat-value">{stats.studentsHelped}</div>
             </div>
-
             <div className="stat-card orange">
               <div className="stat-header">
                 <img src={orangeClockIcon} alt="Clock" className="stat-icon" />
@@ -117,7 +123,6 @@ export default function TADashboard() {
               </div>
               <div className="stat-value">{stats.avgWaitTime}</div>
             </div>
-
             <div className="stat-card green">
               <div className="stat-header">
                 <img src={orangeGroupIcon} alt="Queue" className="stat-icon" />
@@ -125,7 +130,6 @@ export default function TADashboard() {
               </div>
               <div className="stat-value">{stats.currentQueueLength}</div>
             </div>
-
             <div className="stat-card purple">
               <div className="stat-header">
                 <img src={orangeClockIcon} alt="Time" className="stat-icon" />
@@ -133,7 +137,6 @@ export default function TADashboard() {
               </div>
               <div className="stat-value">{stats.longestWaitTime}</div>
             </div>
-
             <div className="stat-card yellow">
               <div className="stat-header">
                 <img src={orangeQuestionIcon} alt="Topic" className="stat-icon" />
@@ -141,7 +144,6 @@ export default function TADashboard() {
               </div>
               <div className="stat-value topic">{stats.mostCommonTopic}</div>
             </div>
-
             <div className="stat-card light-purple">
               <div className="stat-header">
                 <img src={orangeClockIcon} alt="Duration" className="stat-icon" />
@@ -167,41 +169,7 @@ export default function TADashboard() {
             </div>
           </div>
         </div>
-
-        {/* Right Sidebar */}
-        <aside className="sidebar">
-          <div className="sidebar-content">
-            <h2 className="sidebar-title">This Week's Office Hours</h2>
-            <div className="office-hours-list">
-              {weeklyOfficeHours.map((hour) => (
-                <div key={hour.id} className="office-hour-card">
-                  <div className="office-hour-day">
-                    <img src={orangeDateIcon} alt="Date" className="calendar-icon" />
-                    <span>{hour.day}</span>
-                  </div>
-                  <div className="office-hour-time">
-                    <img src={orangeClockIcon} alt="Time" className="time-icon" />
-                    <span>{hour.time}</span>
-                  </div>
-                  <div className="office-hour-course">{hour.course}</div>
-                  <div className="office-hour-actions">
-                    <button
-                      className="modify-btn"
-                    >
-                      Modify
-                    </button>
-                    <button
-                      className="cancel-btn"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
-      </div>
-    </div>
+      )}
+    </TALayout>
   );
 }

@@ -39,9 +39,9 @@
 body {
   background: var(--dark-blue);
   min-height: 100vh;
-  display: flex;
+  /* display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: center; */
 }
 
 .auth-container {
