@@ -1,17 +1,19 @@
  
 # TA Connect Sprint 2
-## Video Link
-* **Front-End:** ...
+## Video Links
+* **Front-End:** https://youtu.be/DO6q1DPi4cw
 * **Back-End:** https://youtu.be/8WT-iecgn4k
+
+**Front-End + Back-End integration with proper functionality shown in the Front-end video!!**
 
 ## Detail work you've completed in Sprint 2
 
 ### Front-End
-* Student Dasboard: Implemented Join Queue button functionality
-* Student Dasboard: Implemented real-time position display when in queue
-* Student Dasboard: Implemented Cancel Spot button functionality
-* TA Dasboard: Implemented display of Real-Time Queue on dashboard
-* TA Dasboard: Implemented Serve Next Button functionality
+* Student Dashboard: Implemented Join Queue button functionality
+* Student Dashboard: Implemented real-time position display when in queue
+* Student Dashboard: Implemented Cancel Spot button functionality
+* TA Dashboard: Implemented display of Real-Time Queue on dashboard
+* TA Dashboard: Implemented Serve Next Button functionality
 
 ### Back-End
 * Created Queue and QueueEntry data models
