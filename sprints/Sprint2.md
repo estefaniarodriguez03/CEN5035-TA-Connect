@@ -7,7 +7,11 @@
 ## Detail work you've completed in Sprint 2
 
 ### Front-End
-* ...
+* Student Dasboard: Implemented Join Queue button functionality
+* Student Dasboard: Implemented real-time position display when in queue
+* Student Dasboard: Implemented Cancel Spot button functionality
+* TA Dasboard: Implemented display of Real-Time Queue on dashboard
+* TA Dasboard: Implemented Serve Next Button functionality
 
 ### Back-End
 * Created Queue and QueueEntry data models
@@ -19,22 +23,75 @@
 <p>&nbsp;</p>
 
 ## List unit tests and Cypress tests for frontend
-### Cypress Tests
-* Visit TA Connect Home Page: Verifies that the app loads successfully at the root URL
-* Login Page:
-  * Displays the login form: Verifies that the email input, password input, and login button are visible
-  * Shows an error for invalid credentials: Verifies that an error message appears when wrong credentials are submitted
-  * Has a link to the register page: Verifies that clicking the Register link navigates to /register
-* Register Page
-  * Displays the registration form: Verifies that the name, email, password inputs and role dropdown are visible
-  * Can select TA role: Verifies that the role dropdown can be changed to TA
-  * Defaults to student role: Verifies that the role dropdown defaults to Student
-  * Has a link back to the login page: Verifies that clicking the Login link navigates back to /login
-* Student Dashboard
-  * Displays the student dashboard: Verifies that the student dashboard loads
-* TA Dashboard
-  * Displays the TA dashboard: Verifies that the TA dashboard loads
-  * Navigates to the queue when Start Office Hours Live Queue is clicked: Verifies that clicking the Start Office Hours Live Queue button loads the Queue Management page
+### Cypress
+- Visit TA Connect Home Page
+  - **Visits the TA Connect home page:** Verifies that the app loads successfully at the root URL
+
+- Login Page
+  - **Displays the login form:** Verifies that the email input, password input, and login button are visible
+  - **Shows an error for invalid credentials:** Verifies that an error message appears when incorrect credentials are submitted
+  - **Has a link to the register page:** Verifies that clicking the Register link navigates to /register
+
+- Register Page
+  - **Displays the registration form:** Verifies that the name, email, password inputs and role dropdown are visible
+  - **Can select TA role:** Verifies that the role dropdown can be changed to TA
+  - **Defaults to student role:** Verifies that the role dropdown defaults to Student
+  - **Has a link back to the login page:** Verifies that clicking the Login link in the footer navigates back to /login
+
+- Student Dashboard
+  - **Displays the student dashboard with welcome message:** Verifies that correct student dashboard is visible after login
+  - **Displays all four course options in the dropdown:** Verifies that the course selection dropdown contains all available course options
+  - **Displays all five days in the weekly schedule:** Verifies that Monday through Friday are all visible in the weekly schedule
+  - **Displays the notification icon in the navbar:** Verifies that the notification icon is visible in the navigation bar
+  - **Displays TA names in Today's TA Hours:** Verifies that TA names are visible in the Today's TA Hours section
+
+- TA Dashboard
+  - **Displays the TA dashboard with welcome message:** Verifies that correct TA dashboard is visible after login
+  - **Displays the correct navigation tabs:** Verifies that Dashboard, My Office Hours, and Queue tabs are visible
+  - **Displays today's office hour schedule cards:** Verifies that both office hour time slots are visible on the dashboard
+  - **Enables the start queue button after selecting an office hour:** Verifies that selecting the first time slot enables the Start Queue button
+  - **Enables the start queue button when the second office hour is selected:** Verifies that selecting the second time slot also enables the Start Queue button
+  - **Displays all stat cards on the dashboard:** Verifies that all six stat cards are visible on the dashboard
+  - **Displays the weekly office hours sidebar:** Verifies that the sidebar shows available office hours
+  - **Shows the live queue view after starting the queue:** Verifies that clicking Start Queue loads the Live Queue view
+  - **Displays queue controls in the live queue view:** Verifies that the Pause Queue and Close Queue buttons are visible
+  - **Displays queue stats in the live queue view:** Verifies that Total in Queue, Longest Wait, and Average Wait Time stats are visible
+  - **Toggles to Resume Queue after clicking Pause Queue:** Verifies that the queue status toggles to paused when Pause Queue is clicked
+  - **Toggles back to Pause Queue after clicking Resume Queue:** Verifies that the queue status toggles back to open when Resume Queue is clicked
+  - **Returns to the dashboard view after closing the queue:** Verifies that clicking Close Queue returns to the TA dashboard
+
+### Unit Tests (Vitest + React Testing Library)
+
+- Login Page
+  - **Renders login form fields and submit button:** Verifies that the email input, password input, and login button are rendered
+  - **Shows registration-success message when redirected from register:** Verifies that the success message appears when navigated from the register page
+  - **Logs in a student and navigates to student dashboard:** Verifies that a successful student login calls the auth login and navigates to /student
+  - **Logs in a TA and navigates to TA dashboard:** Verifies that a successful TA login calls the auth login and navigates to /ta
+  - **Shows login error when API call fails:** Verifies that an error message is shown when the login API call fails
+
+- Register Page
+  - **Renders registration form with default student role:** Verifies that all form fields are rendered properly and the role defaults to Student
+  - **Registers successfully and redirects to login with register flag:** Verifies that a successful registration shows a success message and redirects to /login
+  - **Shows specific backend registration error message:** Verifies that a backend error message is displayed when registration fails with a known error
+  - **Shows fallback registration error message:** Verifies that an error message is shown when registration fails
+
+- Student Dashboard Page
+  - **Renders student greeting and queue controls:** Verifies that the welcome message, course dropdown, and Join Queue button are rendered
+  - **Shows error when no active queue exists for selected office hour:** Verifies that an error is shown when the TA has not opened the queue yet
+  - **Joins queue, disables selectors, and shows real-time section:** Verifies that joining the queue disables the dropdown and shows the Real-Time Queue Status section
+  - **Leaves queue and hides real-time section:** Verifies that leaving the queue hides the Real-Time Queue Status section and re-enables controls
+  - **Auto-exits queue view when queue refresh no longer contains current student:** Verifies that the student is automatically removed from the queue view when they are no longer in the queue
+
+- TA Dashboard Page
+  - **Renders closed dashboard and requires selecting office-hour time first:** Verifies that the start queue button is disabled before an office hour is selected
+  - **Renders welcome message with the TA username:** Verifies that the welcome message displays the TA's username
+  - **Renders all closed-state stat cards:** Verifies that all six stat cards are visible on the dashboard
+  - **Enables start button after selecting an office-hour card:** Verifies that clicking an office hour card enables the Start Queue button
+  - **Opens live queue and calls backend queue creation flow:** Verifies that starting the queue calls the backend API and shows the Live Queue view
+  - **Pauses and resumes the queue through backend status API:** Verifies that pausing and resuming the queue calls the backend status update API correctly
+  - **Closes queue and returns to closed dashboard state:** Verifies that closing the queue calls the backend and returns to the dashboard view
+  - **Opens announcement modal from dashboard and sends announcement:** Verifies that the announcement modal opens, accepts input, and sends the announcement
+  - **Calls next endpoint when starting session on first queued student:** Verifies that clicking Start Session calls the nextQueueStudent API with the correct queue ID
 
 ### Backend Go tests (`backend/api_e2e_test.go`)
 
