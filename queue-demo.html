@@ -13,10 +13,22 @@
       margin-top: 16px;
       border: 1px solid #ccc;
       padding: 8px;
-      height: 250px;
+      height: 320px;
       overflow-y: auto;
       font-family: monospace;
       background: #fafafa;
+    }
+    .notif-hint {
+      font-size: 0.85em;
+      color: #444;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    #announcementMessage {
+      width: 100%;
+      max-width: 480px;
+      min-height: 64px;
+      margin-top: 4px;
     }
     #users { margin-top: 8px; }
     #users li { margin-bottom: 4px; }
@@ -110,14 +122,36 @@
   <h3>Queue actions</h3>
 
   <div style="margin-top: 4px;">
-    <button onclick="connectEvents()">Connect to /events</button>
+    <button onclick="connectEvents()">Connect to /events (notifications)</button>
     <button onclick="disconnectEvents()">Disconnect</button>
   </div>
+  <p class="notif-hint">
+    SSE listens for:
+    <strong>STUDENT_JOINED</strong>, <strong>STUDENT_LEFT</strong>, <strong>STUDENT_SERVED</strong>,
+    <strong>STUDENT_UP_NEXT</strong>, <strong>ANNOUNCEMENT_SENT</strong>, <strong>QUEUE_UPDATED</strong>.
+    Each <code>data:</code> line is the full JSON envelope (<code>type</code>, <code>queue_id</code>, <code>payload</code>).
+  </p>
 
   <div style="margin-top: 10px;">
     <button onclick="joinQueue()">POST /join</button>
     <button onclick="leaveQueue()">POST /leave</button>
     <button onclick="nextStudent()">POST /next</button>
+  </div>
+
+  <h3>Notifications: announcement API</h3>
+  <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
+    <label>
+      Announcement message (TA only; persists in DB + broadcasts <code>ANNOUNCEMENT_SENT</code> on SSE):
+      <textarea id="announcementMessage" placeholder="e.g. Running 10 minutes late"></textarea>
+    </label>
+    <button onclick="sendAnnouncement()">POST /announcement</button>
+    <p class="notif-hint">
+      <strong>Manual smoke test:</strong> (1) Connect to /events. (2) As a student, Join — expect
+      <code>STUDENT_JOINED</code>, <code>QUEUE_UPDATED</code>, and if your position ≤ threshold (default 3),
+      <code>STUDENT_UP_NEXT</code>. (3) As the queue-owning TA, send an announcement — expect
+      <code>ANNOUNCEMENT_SENT</code> then <code>QUEUE_UPDATED</code>. (4) As TA, Next — expect
+      <code>STUDENT_SERVED</code> then <code>QUEUE_UPDATED</code> and updated <code>STUDENT_UP_NEXT</code> if anyone remains in the window.
+    </p>
   </div>
 
   <pre id="log"></pre>
@@ -131,6 +165,16 @@
       const time = new Date().toISOString();
       el.textContent += `[${time}] ${msg}\n`;
       el.scrollTop = el.scrollHeight;
+    }
+
+    /** Pretty-print SSE JSON data for the log. */
+    function formatSSEData(raw) {
+      try {
+        const o = JSON.parse(raw);
+        return JSON.stringify(o, null, 0);
+      } catch {
+        return raw;
+      }
     }
 
     function getBaseInfo() {
@@ -320,10 +364,17 @@
       es.onopen = () => log('EventSource opened');
       es.onerror = (e) => log('EventSource error (check CORS / server): ' + e.type);
 
-      const events = ['STUDENT_JOINED', 'STUDENT_LEFT', 'STUDENT_SERVED', 'QUEUE_UPDATED'];
+      const events = [
+        'STUDENT_JOINED',
+        'STUDENT_LEFT',
+        'STUDENT_SERVED',
+        'STUDENT_UP_NEXT',
+        'ANNOUNCEMENT_SENT',
+        'QUEUE_UPDATED',
+      ];
       events.forEach((eventName) => {
         es.addEventListener(eventName, (event) => {
-          log(`${eventName}: ${event.data}`);
+          log(`[NOTIFY] ${eventName}: ${formatSSEData(event.data)}`);
         });
       });
     }
@@ -363,6 +414,37 @@
     function joinQueue() { postQueueAction('join'); }
     function leaveQueue() { postQueueAction('leave'); }
     function nextStudent() { postQueueAction('next'); }
+
+    async function sendAnnouncement() {
+      const { backend, queueId } = getBaseInfo();
+      const token = document.getElementById('token').value.trim();
+      const message = document.getElementById('announcementMessage').value.trim();
+      if (!queueId) {
+        alert('Enter a queue ID');
+        return;
+      }
+      if (!message) {
+        alert('Enter announcement text');
+        return;
+      }
+      const url = `${backend}/api/queues/${queueId}/announcement`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+      }
+      log(`POST ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ message }),
+        });
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+      } catch (err) {
+        log(`Announcement error: ${err}`);
+      }
+    }
 
     // initial
     renderSavedUsers();
