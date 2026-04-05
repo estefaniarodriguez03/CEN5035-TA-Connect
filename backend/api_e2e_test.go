@@ -1,14 +1,15 @@
 package backend_test
 
 import (
+	"bufio"
 	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"bufio"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -591,4 +592,351 @@ func TestSSE_EmitsStudentJoinedEvent(t *testing.T) {
 		}
 	}
 	t.Fatalf("did not receive STUDENT_JOINED event within deadline")
+}
+
+// readSSEEventUntil reads from an SSE stream until an event with the given name is received,
+// returning the raw JSON from the data: line (full queue event envelope).
+func readSSEEventUntil(t *testing.T, reader *bufio.Reader, want string, deadline time.Time) []byte {
+	t.Helper()
+	for time.Now().Before(deadline) {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read sse line: %v", err)
+		}
+		if !strings.HasPrefix(line, "event: ") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+		dataLine, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read sse data line: %v", err)
+		}
+		dataLine = strings.TrimSpace(dataLine)
+		var payload []byte
+		if strings.HasPrefix(dataLine, "data: ") {
+			payload = []byte(strings.TrimSpace(strings.TrimPrefix(dataLine, "data: ")))
+		}
+		for {
+			nl, err := reader.ReadString('\n')
+			if err != nil {
+				t.Fatalf("read sse event trailer: %v", err)
+			}
+			if strings.TrimSpace(nl) == "" {
+				break
+			}
+		}
+		if name == want {
+			return payload
+		}
+	}
+	t.Fatalf("timeout waiting for SSE event %q", want)
+	return nil
+}
+
+func TestSSE_EmitsStudentUpNextAfterJoin(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	router := routes.SetupRoutes(database)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, router, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_un_%d", suffix),
+		"email":    fmt.Sprintf("ta_un_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, router, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	rr = doJSON(t, router, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_un_%d", suffix),
+		"email":    fmt.Sprintf("st_un_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	student := parseAuthUser(t, rr)
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/queues/%d/events", srv.URL, q.ID), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("connect sse: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("sse status: %d body=%s", resp.StatusCode, string(b))
+	}
+
+	reader := bufio.NewReader(resp.Body)
+
+	rr = doJSON(t, router, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, student.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("join: %d %s", rr.Code, rr.Body.String())
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	raw := readSSEEventUntil(t, reader, "STUDENT_UP_NEXT", deadline)
+
+	var envelope struct {
+		Type    string `json:"type"`
+		QueueID int    `json:"queue_id"`
+		Payload struct {
+			Threshold int              `json:"threshold"`
+			Students  []map[string]any `json:"students"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("unmarshal STUDENT_UP_NEXT: %v raw=%s", err, string(raw))
+	}
+	if envelope.Type != "STUDENT_UP_NEXT" {
+		t.Fatalf("envelope.type: got %q", envelope.Type)
+	}
+	if envelope.QueueID != q.ID {
+		t.Fatalf("envelope.queue_id: got %d want %d", envelope.QueueID, q.ID)
+	}
+	if envelope.Payload.Threshold < 1 {
+		t.Fatalf("expected positive threshold, got %d", envelope.Payload.Threshold)
+	}
+	if len(envelope.Payload.Students) == 0 {
+		t.Fatalf("expected at least one student in STUDENT_UP_NEXT payload")
+	}
+}
+
+func TestSSE_EmitsAnnouncementSent(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	router := routes.SetupRoutes(database)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, router, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_ann_%d", suffix),
+		"email":    fmt.Sprintf("ta_ann_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, router, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/queues/%d/events", srv.URL, q.ID), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("connect sse: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("sse status: %d body=%s", resp.StatusCode, string(b))
+	}
+
+	reader := bufio.NewReader(resp.Body)
+
+	msg := fmt.Sprintf("Test announcement %d", suffix)
+	rr = doJSON(t, router, http.MethodPost, fmt.Sprintf("/api/queues/%d/announcement", q.ID), map[string]any{
+		"message": msg,
+	}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("announcement: %d %s", rr.Code, rr.Body.String())
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	raw := readSSEEventUntil(t, reader, "ANNOUNCEMENT_SENT", deadline)
+
+	var envelope struct {
+		Type    string `json:"type"`
+		QueueID int    `json:"queue_id"`
+		Payload struct {
+			Message string `json:"message"`
+			TAID    int    `json:"ta_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("unmarshal ANNOUNCEMENT_SENT: %v raw=%s", err, string(raw))
+	}
+	if envelope.Type != "ANNOUNCEMENT_SENT" {
+		t.Fatalf("envelope.type: got %q", envelope.Type)
+	}
+	if envelope.QueueID != q.ID {
+		t.Fatalf("envelope.queue_id: got %d want %d", envelope.QueueID, q.ID)
+	}
+	if envelope.Payload.Message != msg {
+		t.Fatalf("payload.message: got %q want %q", envelope.Payload.Message, msg)
+	}
+	if envelope.Payload.TAID != ta.User.ID {
+		t.Fatalf("payload.ta_id: got %d want %d", envelope.Payload.TAID, ta.User.ID)
+	}
+}
+
+func TestPostAnnouncement_HappyPath(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_pa_%d", suffix),
+		"email":    fmt.Sprintf("ta_pa_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	body := fmt.Sprintf("Office hours moved to room 101 (%d)", suffix)
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/announcement", q.ID), map[string]any{
+		"message": body,
+	}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("announcement: %d %s", rr.Code, rr.Body.String())
+	}
+	var out struct {
+		ID        int    `json:"id"`
+		QueueID   int    `json:"queue_id"`
+		Message   string `json:"message"`
+		CreatedAt string `json:"created_at"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+		t.Fatalf("decode announcement response: %v", err)
+	}
+	if out.ID == 0 || out.QueueID != q.ID || out.Message != body || out.CreatedAt == "" {
+		t.Fatalf("unexpected announcement response: %+v", out)
+	}
+}
+
+func TestPostAnnouncement_StudentForbidden(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_ps_%d", suffix),
+		"email":    fmt.Sprintf("ta_ps_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_ps_%d", suffix),
+		"email":    fmt.Sprintf("st_ps_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	student := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/announcement", q.ID), map[string]any{
+		"message": "nope",
+	}, student.Token)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("student announcement: expected 403 got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestPostAnnouncement_NonOwningTAForbidden(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_owner_%d", suffix),
+		"email":    fmt.Sprintf("ta_owner_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta owner: %d %s", rr.Code, rr.Body.String())
+	}
+	taOwner := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_other_%d", suffix),
+		"email":    fmt.Sprintf("ta_other_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta other: %d %s", rr.Code, rr.Body.String())
+	}
+	taOther := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, taOwner.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/announcement", q.ID), map[string]any{
+		"message": "from wrong TA",
+	}, taOther.Token)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-owner announcement: expected 403 got %d body=%s", rr.Code, rr.Body.String())
+	}
 }
