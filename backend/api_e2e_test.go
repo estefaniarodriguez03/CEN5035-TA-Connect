@@ -703,8 +703,8 @@ func TestSSE_EmitsStudentUpNextAfterJoin(t *testing.T) {
 		Type    string `json:"type"`
 		QueueID int    `json:"queue_id"`
 		Payload struct {
-			Threshold int              `json:"threshold"`
-			Students  []map[string]any `json:"students"`
+			StudentID int `json:"student_id"`
+			Position  int `json:"position"`
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
@@ -716,11 +716,11 @@ func TestSSE_EmitsStudentUpNextAfterJoin(t *testing.T) {
 	if envelope.QueueID != q.ID {
 		t.Fatalf("envelope.queue_id: got %d want %d", envelope.QueueID, q.ID)
 	}
-	if envelope.Payload.Threshold < 1 {
-		t.Fatalf("expected positive threshold, got %d", envelope.Payload.Threshold)
+	if envelope.Payload.Position != 1 {
+		t.Fatalf("expected head-of-queue position 1, got %d", envelope.Payload.Position)
 	}
-	if len(envelope.Payload.Students) == 0 {
-		t.Fatalf("expected at least one student in STUDENT_UP_NEXT payload")
+	if envelope.Payload.StudentID != student.User.ID {
+		t.Fatalf("payload.student_id: got %d want %d (joining user)", envelope.Payload.StudentID, student.User.ID)
 	}
 }
 

@@ -147,10 +147,12 @@
     <button onclick="sendAnnouncement()">POST /announcement</button>
     <p class="notif-hint">
       <strong>Manual smoke test:</strong> (1) Connect to /events. (2) As a student, Join — expect
-      <code>STUDENT_JOINED</code>, <code>QUEUE_UPDATED</code>, and if your position ≤ threshold (default 3),
-      <code>STUDENT_UP_NEXT</code>. (3) As the queue-owning TA, send an announcement — expect
+      <code>STUDENT_JOINED</code>, <code>QUEUE_UPDATED</code>, and <code>STUDENT_UP_NEXT</code> with
+      <code>payload.student_id</code> / <code>position: 1</code> for whoever is at the front of the line.
+      (3) As the queue-owning TA, send an announcement — expect
       <code>ANNOUNCEMENT_SENT</code> then <code>QUEUE_UPDATED</code>. (4) As TA, Next — expect
-      <code>STUDENT_SERVED</code> then <code>QUEUE_UPDATED</code> and updated <code>STUDENT_UP_NEXT</code> if anyone remains in the window.
+      <code>STUDENT_SERVED</code> then <code>QUEUE_UPDATED</code>; if someone is still waiting,
+      <code>STUDENT_UP_NEXT</code> names the new person at position 1 only.
     </p>
   </div>
 

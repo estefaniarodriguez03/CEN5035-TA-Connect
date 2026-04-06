@@ -3,50 +3,22 @@ package queue
 import (
 	"context"
 	"database/sql"
-	"os"
-	"strconv"
 )
 
-// upNextThreshold returns how many positions from the front count as "about to be your turn".
-// Configured with QUEUE_UP_NEXT_THRESHOLD (default 3).
-func upNextThreshold() int {
-	s := os.Getenv("QUEUE_UP_NEXT_THRESHOLD")
-	if s == "" {
-		return 3
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil || n < 1 {
-		return 3
-	}
-	return n
-}
-
-// PublishUpNextForQueue emits STUDENT_UP_NEXT when at least one entry has position <= threshold.
+// PublishUpNextForQueue emits STUDENT_UP_NEXT for the single student at the front of the queue
+// (position 1). Clients can show “you’re next” only when payload.student_id matches the viewer.
 func PublishUpNextForQueue(ctx context.Context, db *sql.DB, queueID int) {
-	th := upNextThreshold()
-	rows, err := db.QueryContext(ctx, `
+	var studentID int
+	var position int
+	err := db.QueryRowContext(ctx, `
 		SELECT student_id, position
 		FROM queue_entries
-		WHERE queue_id = $1 AND position <= $2
-		ORDER BY position ASC, joined_at ASC
-	`, queueID, th)
+		WHERE queue_id = $1 AND position = 1
+		ORDER BY joined_at ASC
+		LIMIT 1
+	`, queueID).Scan(&studentID, &position)
 	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	var students []map[string]any
-	for rows.Next() {
-		var studentID, position int
-		if err := rows.Scan(&studentID, &position); err != nil {
-			return
-		}
-		students = append(students, map[string]any{
-			"student_id": studentID,
-			"position":   position,
-		})
-	}
-	if len(students) == 0 {
+		// No one at the head (empty queue or scan error).
 		return
 	}
 
@@ -54,8 +26,8 @@ func PublishUpNextForQueue(ctx context.Context, db *sql.DB, queueID int) {
 		Type:    EventStudentUpNext,
 		QueueID: queueID,
 		Payload: map[string]any{
-			"threshold": th,
-			"students":  students,
+			"student_id": studentID,
+			"position":   position,
 		},
 	})
 }
