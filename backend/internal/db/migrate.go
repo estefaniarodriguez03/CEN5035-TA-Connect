@@ -32,6 +32,16 @@ CREATE TABLE IF NOT EXISTS queue_entries (
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_entries_queue_position ON queue_entries(queue_id, position);
+
+CREATE TABLE IF NOT EXISTS queue_announcements (
+	id SERIAL PRIMARY KEY,
+	queue_id INT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
+	ta_id INT NOT NULL REFERENCES users(id),
+	message TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_queue_announcements_queue_created ON queue_announcements(queue_id, created_at DESC);
 `
 	_, err := db.Exec(query)
 	return err

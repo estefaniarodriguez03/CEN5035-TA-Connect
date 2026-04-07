@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"backend/internal/auth"
 
@@ -19,6 +20,11 @@ type CreateQueueRequest struct {
 // UpdateQueueStatusRequest is the JSON body for POST /api/queues/{id}/status.
 type UpdateQueueStatusRequest struct {
 	Status string `json:"status"`
+}
+
+// PostAnnouncementRequest is the JSON body for POST /api/queues/{id}/announcement.
+type PostAnnouncementRequest struct {
+	Message string `json:"message"`
 }
 
 // CreateQueue handles POST /api/queues. TA creates a new queue; requires auth and role=ta.
@@ -131,6 +137,7 @@ func Join(db *sql.DB) http.HandlerFunc {
 			Type:    EventQueueUpdated,
 			QueueID: queueID,
 		})
+		PublishUpNextForQueue(r.Context(), db, queueID)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -193,6 +200,7 @@ func Leave(db *sql.DB) http.HandlerFunc {
 			Type:    EventQueueUpdated,
 			QueueID: queueID,
 		})
+		PublishUpNextForQueue(r.Context(), db, queueID)
 
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -301,7 +309,6 @@ func Next(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Notify subscribers that a student was served and the queue was updated.
 		DefaultHub.Publish(queueID, QueueEvent{
 			Type:    EventStudentServed,
 			QueueID: queueID,
@@ -311,6 +318,7 @@ func Next(db *sql.DB) http.HandlerFunc {
 			Type:    EventQueueUpdated,
 			QueueID: queueID,
 		})
+		PublishUpNextForQueue(ctx, db, queueID)
 
 		// Mark the returned student as "in session" in the API response.
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -385,6 +393,98 @@ func UpdateStatus(db *sql.DB) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"id":     queueID,
 			"status": req.Status,
+		})
+	}
+}
+
+const maxAnnouncementLen = 4000
+
+// PostAnnouncement handles POST /api/queues/{id}/announcement. TA owner posts a message; stored and broadcast.
+func PostAnnouncement(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		claims, err := auth.GetClaimsFromRequest(r)
+		if err != nil || claims == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
+			return
+		}
+		if claims.Role != "ta" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can send announcements"})
+			return
+		}
+
+		queueID, err := parseQueueID(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			return
+		}
+
+		var req PostAnnouncementRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		msg := strings.TrimSpace(req.Message)
+		if msg == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message is required"})
+			return
+		}
+		if len(msg) > maxAnnouncementLen {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message too long"})
+			return
+		}
+
+		var taID int
+		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM queues WHERE id = $1`, queueID).Scan(&taID)
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		if taID != claims.UserID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can announce on this queue"})
+			return
+		}
+
+		var annID int
+		var createdAt string
+		err = db.QueryRowContext(r.Context(), `
+			INSERT INTO queue_announcements (queue_id, ta_id, message)
+			VALUES ($1, $2, $3)
+			RETURNING id, created_at::text
+		`, queueID, claims.UserID, msg).Scan(&annID, &createdAt)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventAnnouncementSent,
+			QueueID: queueID,
+			Payload: map[string]any{
+				"id":         annID,
+				"message":    msg,
+				"ta_id":      claims.UserID,
+				"created_at": createdAt,
+			},
+		})
+		DefaultHub.Publish(queueID, QueueEvent{
+			Type:    EventQueueUpdated,
+			QueueID: queueID,
+		})
+
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"id":         annID,
+			"queue_id":   queueID,
+			"message":    msg,
+			"created_at": createdAt,
 		})
 	}
 }
