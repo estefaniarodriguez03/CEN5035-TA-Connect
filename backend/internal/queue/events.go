@@ -11,11 +11,23 @@ import (
 type EventType string
 
 const (
-	EventStudentJoined EventType = "STUDENT_JOINED"
-	EventStudentLeft   EventType = "STUDENT_LEFT"
-	EventQueueUpdated  EventType = "QUEUE_UPDATED"
-	EventStudentServed EventType = "STUDENT_SERVED"
+	EventStudentJoined    EventType = "STUDENT_JOINED"
+	EventStudentLeft      EventType = "STUDENT_LEFT"
+	EventStudentUpNext    EventType = "STUDENT_UP_NEXT"
+	EventAnnouncementSent EventType = "ANNOUNCEMENT_SENT"
+	EventQueueUpdated     EventType = "QUEUE_UPDATED"
+	EventStudentServed    EventType = "STUDENT_SERVED"
 )
+
+// AllEventTypes lists every SSE event name the hub may emit (for clients/tests).
+var AllEventTypes = []EventType{
+	EventStudentJoined,
+	EventStudentLeft,
+	EventStudentUpNext,
+	EventAnnouncementSent,
+	EventQueueUpdated,
+	EventStudentServed,
+}
 
 type QueueEvent struct {
 	Type    EventType `json:"type"`
@@ -116,7 +128,7 @@ func StreamQueueEvents(hub *Hub) http.HandlerFunc {
 				if !ok {
 					return
 				}
-				data, err := json.Marshal(evt.Payload)
+				data, err := json.Marshal(evt)
 				if err != nil {
 					continue
 				}
