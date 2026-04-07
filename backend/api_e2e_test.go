@@ -940,3 +940,122 @@ func TestPostAnnouncement_NonOwningTAForbidden(t *testing.T) {
 		t.Fatalf("non-owner announcement: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestCreateOfficeHour_HappyPath(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_oh_%d", suffix),
+		"email":    fmt.Sprintf("ta_oh_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	body := map[string]any{
+		"course_id":   2,
+		"day_of_week": 1,
+		"start_time":  "11:00",
+		"end_time":    "13:00",
+		"location":    "CSE 220",
+	}
+	rr = doJSON(t, ts, http.MethodPost, "/api/office-hours", body, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create office hour: expected 201 got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var oh struct {
+		ID        int    `json:"id"`
+		TAID      int    `json:"ta_id"`
+		CourseID  int    `json:"course_id"`
+		DayOfWeek int    `json:"day_of_week"`
+		StartTime string `json:"start_time"`
+		EndTime   string `json:"end_time"`
+		Location  string `json:"location"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&oh); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if oh.ID == 0 || oh.TAID != ta.User.ID || oh.CourseID != 2 || oh.DayOfWeek != 1 {
+		t.Fatalf("unexpected office hour: %+v", oh)
+	}
+	if oh.StartTime != "11:00:00" || oh.EndTime != "13:00:00" || oh.Location != "CSE 220" {
+		t.Fatalf("unexpected times/location: %+v", oh)
+	}
+}
+
+func TestCreateOfficeHour_UnauthorizedAndStudentForbidden(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/office-hours", map[string]any{
+		"course_id": 1, "day_of_week": 1, "start_time": "10:00", "end_time": "11:00",
+	}, "")
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("no token: expected 401 got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_oh_%d", suffix),
+		"email":    fmt.Sprintf("st_oh_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	student := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/office-hours", map[string]any{
+		"course_id": 1, "day_of_week": 1, "start_time": "10:00", "end_time": "11:00",
+	}, student.Token)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("student: expected 403 got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateOfficeHour_OverlapRejected(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_oh2_%d", suffix),
+		"email":    fmt.Sprintf("ta_oh2_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	slot := map[string]any{
+		"course_id": 1, "day_of_week": 3, "start_time": "10:00", "end_time": "12:00", "location": "A",
+	}
+	rr = doJSON(t, ts, http.MethodPost, "/api/office-hours", slot, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("first slot: expected 201 got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	overlap := map[string]any{
+		"course_id": 2, "day_of_week": 3, "start_time": "11:00", "end_time": "13:00", "location": "B",
+	}
+	rr = doJSON(t, ts, http.MethodPost, "/api/office-hours", overlap, ta.Token)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("overlap: expected 409 got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	adjacent := map[string]any{
+		"course_id": 1, "day_of_week": 3, "start_time": "12:00", "end_time": "14:00", "location": "C",
+	}
+	rr = doJSON(t, ts, http.MethodPost, "/api/office-hours", adjacent, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("adjacent slot: expected 201 got %d body=%s", rr.Code, rr.Body.String())
+	}
+}

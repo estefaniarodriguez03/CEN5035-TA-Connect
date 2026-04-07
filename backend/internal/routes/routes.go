@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/officehour"
 	"backend/internal/queue"
 
 	"github.com/go-chi/chi/v5"
@@ -23,6 +24,8 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Get("/health", healthHandler(db))
 	r.Post("/api/login", auth.Login(db))
 	r.Post("/api/register", auth.Register(db))
+
+	r.Post("/api/office-hours", officehour.Create(db))
 
 	r.Post("/api/queues", queue.CreateQueue(db))
 	r.Get("/api/queues/active", queue.GetActiveQueueByCourse(db))
