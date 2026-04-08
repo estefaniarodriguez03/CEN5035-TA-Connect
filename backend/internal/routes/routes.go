@@ -25,7 +25,13 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Post("/api/login", auth.Login(db))
 	r.Post("/api/register", auth.Register(db))
 
+	r.Get("/api/office-hours/ta/{ta_id}", officehour.ListByTA(db))
+	r.Get("/api/office-hours/course/{course_id}", officehour.ListByCourse(db))
 	r.Post("/api/office-hours", officehour.Create(db))
+	r.Route("/api/office-hours/{id}", func(r chi.Router) {
+		r.Put("/", officehour.Update(db))
+		r.Delete("/", officehour.Delete(db))
+	})
 
 	r.Post("/api/queues", queue.CreateQueue(db))
 	r.Get("/api/queues/active", queue.GetActiveQueueByCourse(db))
@@ -60,7 +66,7 @@ func healthHandler(db *sql.DB) http.HandlerFunc {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Authorization")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		if r.Method == http.MethodOptions {

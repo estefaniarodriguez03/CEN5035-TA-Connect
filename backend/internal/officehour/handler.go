@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"backend/internal/auth"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // CreateOfficeHourRequest is the JSON body for POST /api/office-hours.
@@ -105,6 +108,289 @@ func Create(db *sql.DB) http.HandlerFunc {
 			Location:  strings.TrimSpace(req.Location),
 		})
 	}
+}
+
+// Update handles PUT /api/office-hours/{id}. TA-only; owning TA only; rejects overlaps with other slots on the same day.
+func Update(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		claims, err := auth.GetClaimsFromRequest(r)
+		if err != nil || claims == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
+			return
+		}
+		if claims.Role != "ta" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can update office hours"})
+			return
+		}
+
+		id, err := parseOfficeHourID(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid office hour id"})
+			return
+		}
+
+		var ownerID int
+		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM office_hours WHERE id = $1`, id).Scan(&ownerID)
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		if ownerID != claims.UserID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can update this office hour"})
+			return
+		}
+
+		var req CreateOfficeHourRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+
+		if req.DayOfWeek < 0 || req.DayOfWeek > 6 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "day_of_week must be 0-6 (Sunday-Saturday)"})
+			return
+		}
+
+		startClock, err := parseClock(req.StartTime)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid start_time"})
+			return
+		}
+		endClock, err := parseClock(req.EndTime)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid end_time"})
+			return
+		}
+		if !startClock.Before(endClock) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "start_time must be before end_time"})
+			return
+		}
+
+		startStr := startClock.Format("15:04:05")
+		endStr := endClock.Format("15:04:05")
+
+		var overlaps bool
+		err = db.QueryRowContext(r.Context(), `
+			SELECT EXISTS (
+				SELECT 1 FROM office_hours
+				WHERE ta_id = $1 AND day_of_week = $2 AND id <> $5
+				AND start_time < $4::time AND end_time > $3::time
+			)
+		`, claims.UserID, req.DayOfWeek, startStr, endStr, id).Scan(&overlaps)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		if overlaps {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "overlapping office hour"})
+			return
+		}
+
+		var startOut, endOut string
+		err = db.QueryRowContext(r.Context(), `
+			UPDATE office_hours
+			SET course_id = $2, day_of_week = $3, start_time = $4::time, end_time = $5::time, location = $6
+			WHERE id = $1
+			RETURNING start_time::text, end_time::text
+		`, id, req.CourseID, req.DayOfWeek, startStr, endStr, strings.TrimSpace(req.Location)).Scan(&startOut, &endOut)
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, OfficeHour{
+			ID:        id,
+			TAID:      claims.UserID,
+			CourseID:  req.CourseID,
+			DayOfWeek: req.DayOfWeek,
+			StartTime: trimTimeSuffix(startOut),
+			EndTime:   trimTimeSuffix(endOut),
+			Location:  strings.TrimSpace(req.Location),
+		})
+	}
+}
+
+// Delete handles DELETE /api/office-hours/{id}. TA-only; owning TA only.
+func Delete(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		claims, err := auth.GetClaimsFromRequest(r)
+		if err != nil || claims == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
+			return
+		}
+		if claims.Role != "ta" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can delete office hours"})
+			return
+		}
+
+		id, err := parseOfficeHourID(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid office hour id"})
+			return
+		}
+
+		var ownerID int
+		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM office_hours WHERE id = $1`, id).Scan(&ownerID)
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		if ownerID != claims.UserID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can delete this office hour"})
+			return
+		}
+
+		res, err := db.ExecContext(r.Context(), `DELETE FROM office_hours WHERE id = $1`, id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil || n == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ListByTA handles GET /api/office-hours/ta/{ta_id}. Public; returns all office hours for that TA, ordered by day then start time.
+func ListByTA(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		s := chi.URLParam(r, "ta_id")
+		if s == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ta id"})
+			return
+		}
+		taID, err := strconv.Atoi(s)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ta id"})
+			return
+		}
+
+		rows, err := db.QueryContext(r.Context(), `
+			SELECT id, ta_id, course_id, day_of_week, start_time::text, end_time::text, location
+			FROM office_hours
+			WHERE ta_id = $1
+			ORDER BY day_of_week ASC, start_time ASC
+		`, taID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		defer rows.Close()
+
+		list := make([]OfficeHour, 0)
+		for rows.Next() {
+			var oh OfficeHour
+			var startOut, endOut string
+			if err := rows.Scan(&oh.ID, &oh.TAID, &oh.CourseID, &oh.DayOfWeek, &startOut, &endOut, &oh.Location); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				return
+			}
+			oh.StartTime = trimTimeSuffix(startOut)
+			oh.EndTime = trimTimeSuffix(endOut)
+			list = append(list, oh)
+		}
+		if err := rows.Err(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(list)
+	}
+}
+
+// ListByCourse handles GET /api/office-hours/course/{course_id}. Public; returns all office hours for that course, ordered by day, start time, then TA.
+func ListByCourse(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		s := chi.URLParam(r, "course_id")
+		if s == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
+			return
+		}
+		courseID, err := strconv.Atoi(s)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
+			return
+		}
+
+		rows, err := db.QueryContext(r.Context(), `
+			SELECT id, ta_id, course_id, day_of_week, start_time::text, end_time::text, location
+			FROM office_hours
+			WHERE course_id = $1
+			ORDER BY day_of_week ASC, start_time ASC, ta_id ASC
+		`, courseID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+		defer rows.Close()
+
+		list := make([]OfficeHour, 0)
+		for rows.Next() {
+			var oh OfficeHour
+			var startOut, endOut string
+			if err := rows.Scan(&oh.ID, &oh.TAID, &oh.CourseID, &oh.DayOfWeek, &startOut, &endOut, &oh.Location); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				return
+			}
+			oh.StartTime = trimTimeSuffix(startOut)
+			oh.EndTime = trimTimeSuffix(endOut)
+			list = append(list, oh)
+		}
+		if err := rows.Err(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(list)
+	}
+}
+
+func parseOfficeHourID(r *http.Request) (int, error) {
+	s := chi.URLParam(r, "id")
+	if s == "" {
+		return 0, strconv.ErrSyntax
+	}
+	return strconv.Atoi(s)
 }
 
 // parseClock parses a wall-clock time (HH:MM or HH:MM:SS).
