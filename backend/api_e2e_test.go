@@ -272,6 +272,168 @@ func TestQueueJoinLeave_Errors(t *testing.T) {
 	}
 }
 
+func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_state_%d", suffix),
+		"email":    fmt.Sprintf("ta_state_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_state_%d", suffix),
+		"email":    fmt.Sprintf("st_state_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	student := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 42}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	statePath := fmt.Sprintf("/api/queues/%d/state", q.ID)
+
+	// PATCH state -> paused
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "paused"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch paused: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, student.Token)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("join paused: expected 409 got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var joinErr map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&joinErr); err != nil {
+		t.Fatalf("decode join error: %v", err)
+	}
+	if joinErr["error"] != "queue is paused" {
+		t.Fatalf("join paused message: got %q", joinErr["error"])
+	}
+
+	// PATCH state -> closed
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "closed"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch closed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, student.Token)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("join closed: expected 409 got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&joinErr); err != nil {
+		t.Fatalf("decode join error: %v", err)
+	}
+	if joinErr["error"] != "queue is closed" {
+		t.Fatalf("join closed message: got %q", joinErr["error"])
+	}
+
+	// Re-open and join succeeds
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "open"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch open: %d %s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, student.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("join open: expected 201 got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Wrong HTTP method on /state
+	rr = doJSON(t, ts, http.MethodPost, statePath, map[string]any{"status": "paused"}, ta.Token)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("post /state: expected 405 got %d", rr.Code)
+	}
+}
+
+func TestSSE_EmitsQueueStateChanged(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	router := routes.SetupRoutes(database)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, router, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_qsc_%d", suffix),
+		"email":    fmt.Sprintf("ta_qsc_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, router, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/queues/%d/events", srv.URL, q.ID), nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("connect sse: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("sse status: %d body=%s", resp.StatusCode, string(b))
+	}
+
+	reader := bufio.NewReader(resp.Body)
+
+	statePath := fmt.Sprintf("/api/queues/%d/state", q.ID)
+	rr = doJSON(t, router, http.MethodPatch, statePath, map[string]any{"status": "paused"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch state: %d %s", rr.Code, rr.Body.String())
+	}
+
+	deadline := time.Now().Add(4 * time.Second)
+	raw := readSSEEventUntil(t, reader, "QUEUE_STATE_CHANGED", deadline)
+
+	var envelope struct {
+		Type    string `json:"type"`
+		QueueID int    `json:"queue_id"`
+		Payload struct {
+			PreviousStatus string `json:"previous_status"`
+			Status         string `json:"status"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("unmarshal QUEUE_STATE_CHANGED: %v raw=%s", err, string(raw))
+	}
+	if envelope.Payload.PreviousStatus != "open" || envelope.Payload.Status != "paused" {
+		t.Fatalf("payload: %+v", envelope.Payload)
+	}
+}
+
 func TestRegister_DuplicateUsernameOrEmail(t *testing.T) {
 	database, ts := newTestServer(t)
 	defer database.Close()

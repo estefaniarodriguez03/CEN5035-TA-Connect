@@ -37,6 +37,33 @@
       color: #555;
       word-break: break-all;
     }
+    .queue-state-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .queue-state {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .queue-state--open { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .queue-state--paused { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .queue-state--closed { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .queue-state--unknown { background: #e2e3e5; color: #383d41; border: 1px solid #d6d8db; }
+    .state-actions {
+      border: 1px solid #ddd;
+      padding: 8px;
+      margin: 8px 0;
+      background: #fafbff;
+    }
+    .state-actions button.state-open { background: #d4edda; }
+    .state-actions button.state-paused { background: #fff3cd; }
+    .state-actions button.state-closed { background: #f8d7da; }
   </style>
 </head>
 <body>
@@ -51,6 +78,16 @@
     Queue ID:
     <input id="queueId" value="1">
   </label>
+
+  <div class="queue-state-row">
+    <span>Queue status (from API):</span>
+    <span id="queueStateBadge" class="queue-state queue-state--unknown" title="GET /api/queues/:id or SSE QUEUE_STATE_CHANGED">—</span>
+    <button type="button" onclick="refreshQueueInfo()">Refresh (GET /queues/:id)</button>
+  </div>
+  <p class="notif-hint" style="margin-top:4px;">
+    <strong>Open</strong> — students may join. <strong>Paused</strong> / <strong>Closed</strong> — join returns 409
+    (<code>queue is paused</code> / <code>queue is closed</code>). TAs change state with PATCH below.
+  </p>
 
   <h3>Auth: Register / Login</h3>
 
@@ -128,9 +165,21 @@
   <p class="notif-hint">
     SSE listens for:
     <strong>STUDENT_JOINED</strong>, <strong>STUDENT_LEFT</strong>, <strong>STUDENT_SERVED</strong>,
-    <strong>STUDENT_UP_NEXT</strong>, <strong>ANNOUNCEMENT_SENT</strong>, <strong>QUEUE_UPDATED</strong>.
+    <strong>STUDENT_UP_NEXT</strong>, <strong>ANNOUNCEMENT_SENT</strong>, <strong>QUEUE_UPDATED</strong>,
+    <strong>QUEUE_STATE_CHANGED</strong> (payload: <code>previous_status</code>, <code>status</code>).
     Each <code>data:</code> line is the full JSON envelope (<code>type</code>, <code>queue_id</code>, <code>payload</code>).
   </p>
+
+  <h3>Queue state (TA only)</h3>
+  <div class="state-actions">
+    <div style="margin-bottom:6px;"><strong>PATCH</strong> <code>/api/queues/:id/state</code> — body <code>{"status":"open"|"paused"|"closed"}</code></div>
+    <button type="button" class="state-open" onclick="patchQueueState('open')">Open</button>
+    <button type="button" class="state-paused" onclick="patchQueueState('paused')">Pause</button>
+    <button type="button" class="state-closed" onclick="patchQueueState('closed')">Close</button>
+    <p class="notif-hint" style="margin-top:8px; margin-bottom:0;">
+      Legacy <code>POST /api/queues/:id/status</code> with the same JSON still works; this page uses PATCH <code>/state</code>.
+    </p>
+  </div>
 
   <div style="margin-top: 10px;">
     <button onclick="joinQueue()">POST /join</button>
@@ -150,9 +199,12 @@
       <code>STUDENT_JOINED</code>, <code>QUEUE_UPDATED</code>, and <code>STUDENT_UP_NEXT</code> with
       <code>payload.student_id</code> / <code>position: 1</code> for whoever is at the front of the line.
       (3) As the queue-owning TA, send an announcement — expect
-      <code>ANNOUNCEMENT_SENT</code> then <code>QUEUE_UPDATED</code>. (4) As TA, Next — expect
+      <code>ANNOUNCEMENT_SENT</code> then <code>QUEUE_UPDATED</code>.       (4) As TA, Next — expect
       <code>STUDENT_SERVED</code> then <code>QUEUE_UPDATED</code>; if someone is still waiting,
       <code>STUDENT_UP_NEXT</code> names the new person at position 1 only.
+      (5) As TA, set <strong>Pause</strong> or <strong>Close</strong> — badge updates; SSE shows
+      <code>QUEUE_STATE_CHANGED</code> then <code>QUEUE_UPDATED</code>. Try <strong>Join</strong> as a student → 409 with a clear message.
+      Set <strong>Open</strong> again to allow joins.
     </p>
   </div>
 
@@ -183,6 +235,82 @@
       const backend = document.getElementById('backendUrl').value.replace(/\/+$/, '');
       const queueId = document.getElementById('queueId').value.trim();
       return { backend, queueId };
+    }
+
+    /** Updates the status badge (open | paused | closed). */
+    function updateQueueStateUI(status) {
+      const el = document.getElementById('queueStateBadge');
+      const s = (status || '').toLowerCase();
+      const valid = s === 'open' || s === 'paused' || s === 'closed';
+      el.className = 'queue-state queue-state--' + (valid ? s : 'unknown');
+      if (!status) {
+        el.textContent = '—';
+        return;
+      }
+      if (!valid) {
+        el.textContent = String(status);
+        return;
+      }
+      el.textContent = s.toUpperCase();
+    }
+
+    async function refreshQueueInfo() {
+      const { backend, queueId } = getBaseInfo();
+      if (!queueId) {
+        alert('Enter a queue ID');
+        return;
+      }
+      const url = `${backend}/api/queues/${queueId}`;
+      log(`GET ${url}`);
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+        if (res.ok) {
+          const data = JSON.parse(text);
+          if (data.status) {
+            updateQueueStateUI(data.status);
+          }
+        } else {
+          updateQueueStateUI(null);
+        }
+      } catch (err) {
+        log(`GET queue error: ${err}`);
+      }
+    }
+
+    async function patchQueueState(status) {
+      const { backend, queueId } = getBaseInfo();
+      const token = document.getElementById('token').value.trim();
+      if (!queueId) {
+        alert('Enter a queue ID');
+        return;
+      }
+      const url = `${backend}/api/queues/${queueId}/state`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+      } else {
+        log('Warning: PATCH /state without token will fail (TA required).');
+      }
+      log(`PATCH ${url}  body: {"status":"${status}"}`);
+      try {
+        const res = await fetch(url, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ status }),
+        });
+        const text = await res.text();
+        log(`→ ${res.status} ${res.statusText}: ${text}`);
+        if (res.ok) {
+          const data = JSON.parse(text);
+          if (data.status) {
+            updateQueueStateUI(data.status);
+          }
+        }
+      } catch (err) {
+        log(`PATCH state error: ${err}`);
+      }
     }
 
     function setCurrentToken(token, user) {
@@ -340,6 +468,11 @@
           if (data.id) {
             document.getElementById('queueId').value = data.id;
             log(`Set Queue ID input to new queue id ${data.id}`);
+            if (data.status) {
+              updateQueueStateUI(data.status);
+            } else {
+              updateQueueStateUI('open');
+            }
           }
         }
       } catch (err) {
@@ -363,7 +496,10 @@
 
       es = new EventSource(url);
 
-      es.onopen = () => log('EventSource opened');
+      es.onopen = () => {
+        log('EventSource opened');
+        refreshQueueInfo();
+      };
       es.onerror = (e) => log('EventSource error (check CORS / server): ' + e.type);
 
       const events = [
@@ -373,10 +509,20 @@
         'STUDENT_UP_NEXT',
         'ANNOUNCEMENT_SENT',
         'QUEUE_UPDATED',
+        'QUEUE_STATE_CHANGED',
       ];
       events.forEach((eventName) => {
         es.addEventListener(eventName, (event) => {
           log(`[NOTIFY] ${eventName}: ${formatSSEData(event.data)}`);
+          if (eventName === 'QUEUE_STATE_CHANGED' && event.data) {
+            try {
+              const envelope = JSON.parse(event.data);
+              const next = envelope.payload && envelope.payload.status;
+              if (next) {
+                updateQueueStateUI(next);
+              }
+            } catch (_) { /* ignore */ }
+          }
         });
       });
     }

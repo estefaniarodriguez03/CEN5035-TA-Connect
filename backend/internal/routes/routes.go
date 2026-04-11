@@ -37,6 +37,7 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Get("/api/queues/active", queue.GetActiveQueueByCourse(db))
 	r.Route("/api/queues/{id}", func(r chi.Router) {
 		r.Get("/", queue.GetQueue(db))
+		r.Patch("/state", queue.UpdateQueueState(db))
 		r.Post("/status", queue.UpdateStatus(db))
 		r.Post("/next", queue.Next(db))
 		r.Post("/join", queue.Join(db))
