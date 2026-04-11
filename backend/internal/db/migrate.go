@@ -33,6 +33,20 @@ CREATE TABLE IF NOT EXISTS queue_entries (
 
 CREATE INDEX IF NOT EXISTS idx_queue_entries_queue_position ON queue_entries(queue_id, position);
 
+CREATE TABLE IF NOT EXISTS office_hours (
+	id SERIAL PRIMARY KEY,
+	ta_id INT NOT NULL REFERENCES users(id),
+	course_id INT NOT NULL,
+	day_of_week SMALLINT NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
+	start_time TIME NOT NULL,
+	end_time TIME NOT NULL,
+	location TEXT NOT NULL DEFAULT '',
+	CHECK (start_time < end_time)
+);
+
+CREATE INDEX IF NOT EXISTS idx_office_hours_ta_id ON office_hours(ta_id);
+CREATE INDEX IF NOT EXISTS idx_office_hours_course_id ON office_hours(course_id);
+
 CREATE TABLE IF NOT EXISTS queue_announcements (
 	id SERIAL PRIMARY KEY,
 	queue_id INT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
@@ -46,4 +60,3 @@ CREATE INDEX IF NOT EXISTS idx_queue_announcements_queue_created ON queue_announ
 	_, err := db.Exec(query)
 	return err
 }
-
