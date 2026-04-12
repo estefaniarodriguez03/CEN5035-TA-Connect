@@ -7,6 +7,7 @@ import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
 import { getActiveQueueForOfficeHour, joinQueue, leaveQueue, getQueueOrNull, subscribeToQueueEvents } from "../api/queue";
+import type { QueueEvent, QueueStateChangePayload } from "../api/queue";
 
 interface TAHour {
   id: number;
@@ -138,8 +139,7 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!isInQueue || !joinedQueueID) return;
 
-    const handleQueueEvent = async () => {
-      // Refresh queue data on any event
+    const refreshFromServer = async () => {
       try {
         const data = await getQueueOrNull(joinedQueueID);
         if (!data) {
@@ -170,12 +170,29 @@ export default function StudentDashboard() {
       }
     };
 
+    const handleQueueEvent = (evt: QueueEvent) => {
+      if (evt.type === "QUEUE_STATE_CHANGED") {
+        const p = evt.payload as QueueStateChangePayload | undefined;
+        if (p?.status === "paused") {
+          toast.info("The queue has been paused by the TA. You are still in line.");
+        } else if (p?.status === "closed") {
+          toast.warning("The queue has been closed by the TA.");
+          setIsInQueue(false);
+          setJoinedQueueID(null);
+          setStudentPosition(null);
+          return;
+        } else if (p?.status === "open" && p.previous_status === "paused") {
+          toast.success("The queue has been reopened!");
+        }
+      }
+      void refreshFromServer();
+    };
+
     const unsubscribe = subscribeToQueueEvents(
       joinedQueueID,
       handleQueueEvent,
       () => {
-        // fallback to snapshot pull
-        void handleQueueEvent();
+        void refreshFromServer();
       }
     );
 
@@ -292,7 +309,13 @@ export default function StudentDashboard() {
 
       const queueState = await getQueueOrNull(queueID);
       if (!queueState || queueState.status !== "open") {
-        toast.error("The TA has not opened the queue for this office hours yet. Come back later!");
+        if (queueState?.status === "paused") {
+          toast.error("The queue is currently paused. Please wait for the TA to resume it.");
+        } else if (queueState?.status === "closed") {
+          toast.error("The queue is closed. Check back during the next office hours.");
+        } else {
+          toast.error("The TA has not opened the queue for this office hours yet. Come back later!");
+        }
         return;
       }
 
