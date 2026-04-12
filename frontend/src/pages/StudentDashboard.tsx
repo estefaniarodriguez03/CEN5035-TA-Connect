@@ -44,6 +44,7 @@ export default function StudentDashboard() {
   const [waitTime, setWaitTime] = useState("0 minutes");
   const [queueStudentCount, setQueueStudentCount] = useState(0);
   const [joinedQueueID, setJoinedQueueID] = useState<number | null>(null);
+  const [queueStatusForCourse, setQueueStatusForCourse] = useState<string | null>(null);
 
   const courseOptions: CourseOption[] = [
     {
@@ -82,6 +83,7 @@ export default function StudentDashboard() {
           setQueueStudentCount(0);
           setWaitTime("0 minutes");
           setStudentPosition(null);
+          setQueueStatusForCourse(null);
           return;
         }
 
@@ -93,6 +95,7 @@ export default function StudentDashboard() {
           setQueueStudentCount(0);
           setWaitTime("0 minutes");
           setStudentPosition(null);
+          setQueueStatusForCourse(null);
           return;
         }
 
@@ -101,12 +104,14 @@ export default function StudentDashboard() {
           setQueueStudentCount(0);
           setWaitTime("0 minutes");
           setStudentPosition(null);
+          setQueueStatusForCourse(null);
           if (isInQueue) {
             setIsInQueue(false);
             setJoinedQueueID(null);
           }
           return;
         }
+        setQueueStatusForCourse(data.status);
         setQueueStudentCount(data.entries.length);
         
         // Calculate wait time: each student = 4 minutes
@@ -134,6 +139,28 @@ export default function StudentDashboard() {
 
     void loadQueueData();
   }, [selectedCourse, isInQueue, user?.id, joinedQueueID, selectedCourseOption, selectedOfficeHourQueueID]);
+
+  // Subscribe to state changes on the selected queue so the paused/closed banner updates live.
+  useEffect(() => {
+    if (isInQueue) return; // the in-queue subscription below handles this case
+    const queueID = selectedOfficeHourQueueID;
+    if (!queueID) return;
+
+    const unsubscribe = subscribeToQueueEvents(
+      queueID,
+      (evt: QueueEvent) => {
+        if (evt.type === "QUEUE_STATE_CHANGED") {
+          const p = evt.payload as QueueStateChangePayload | undefined;
+          if (p?.status) {
+            setQueueStatusForCourse(p.status);
+          }
+        }
+      },
+      () => { /* ignore errors for background subscription */ }
+    );
+
+    return () => unsubscribe();
+  }, [isInQueue, selectedOfficeHourQueueID]);
 
   // Subscribe to real-time queue updates
   useEffect(() => {
@@ -173,6 +200,9 @@ export default function StudentDashboard() {
     const handleQueueEvent = (evt: QueueEvent) => {
       if (evt.type === "QUEUE_STATE_CHANGED") {
         const p = evt.payload as QueueStateChangePayload | undefined;
+        if (p?.status) {
+          setQueueStatusForCourse(p.status);
+        }
         if (p?.status === "paused") {
           toast.info("The queue has been paused by the TA. You are still in line.");
         } else if (p?.status === "closed") {
@@ -414,13 +444,39 @@ export default function StudentDashboard() {
               <div className="wait-time-info">Based on {queueStudentCount} student{queueStudentCount !== 1 ? "s" : ""} currently in queue</div>
             </div>
 
+            {/* Queue Status Banner */}
+            {!isInQueue && queueStatusForCourse === "paused" && (
+              <div className="queue-status-banner queue-status-paused">
+                <span className="queue-status-banner-icon">⏸</span>
+                <div>
+                  <strong>Queue Paused</strong>
+                  <div className="queue-status-banner-sub">The TA has temporarily paused the queue. You'll be able to join once it reopens.</div>
+                </div>
+              </div>
+            )}
+            {!isInQueue && queueStatusForCourse === "closed" && (
+              <div className="queue-status-banner queue-status-closed">
+                <span className="queue-status-banner-icon">✕</span>
+                <div>
+                  <strong>Queue Closed</strong>
+                  <div className="queue-status-banner-sub">This queue is no longer accepting students. Check back during the next office hours.</div>
+                </div>
+              </div>
+            )}
+
             {/* Join Queue Button */}
             <button 
-              className={`join-queue-btn ${isInQueue ? 'in-queue' : ''}`}
+              className={`join-queue-btn ${isInQueue ? 'in-queue' : ''} ${!isInQueue && queueStatusForCourse && queueStatusForCourse !== 'open' ? 'queue-blocked' : ''}`}
               onClick={handleJoinQueue}
-              disabled={isInQueue}
+              disabled={isInQueue || (queueStatusForCourse !== null && queueStatusForCourse !== 'open')}
             >
-              {isInQueue ? 'Already in Queue' : 'Join Queue'}
+              {isInQueue
+                ? 'Already in Queue'
+                : queueStatusForCourse === 'paused'
+                  ? 'Queue Paused — Cannot Join'
+                  : queueStatusForCourse === 'closed'
+                    ? 'Queue Closed'
+                    : 'Join Queue'}
             </button>
           </div>
 
