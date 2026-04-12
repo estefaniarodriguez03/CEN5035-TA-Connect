@@ -47,6 +47,7 @@ vi.mock('../api/queue', () => ({
   getQueueOrNull: vi.fn(),
   subscribeToQueueEvents: vi.fn(),
   updateQueueStatus: vi.fn(),
+  updateQueueState: vi.fn(),
   nextQueueStudent: vi.fn(),
   setActiveQueueForCourse: vi.fn(),
   clearActiveQueueForCourse: vi.fn(),
@@ -78,6 +79,7 @@ import {
   getQueueOrNull,
   subscribeToQueueEvents,
   updateQueueStatus,
+  updateQueueState,
   nextQueueStudent,
   getActiveQueueForOfficeHour,
   joinQueue,
@@ -107,6 +109,7 @@ beforeEach(() => {
   });
   vi.mocked(subscribeToQueueEvents).mockImplementation(() => () => undefined);
   vi.mocked(updateQueueStatus).mockResolvedValue({ id: 10, status: 'open' });
+  vi.mocked(updateQueueState).mockResolvedValue({ id: 10, status: 'open' });
   vi.mocked(nextQueueStudent).mockResolvedValue({
     queue_id: 10,
     status: 'in_session',
@@ -430,24 +433,24 @@ describe('TADashboard page', () => {
 
     expect(await screen.findByText('Live Queue')).toBeInTheDocument();
     expect(createQueue).toHaveBeenCalledWith(2);
-    expect(updateQueueStatus).toHaveBeenCalledWith(10, 'open');
+    expect(updateQueueState).toHaveBeenCalledWith(10, 'open');
   });
 
-  it('pauses and resumes the queue through backend status API', async () => {
+  it('pauses and resumes the queue through backend state API', async () => {
     render(<TADashboard />);
     fireEvent.click(screen.getAllByText('11:00 AM - 1:00 PM')[0]);
     fireEvent.click(screen.getByRole('button', { name: /Start Office Hours Live Queue/i }));
     await screen.findByText('Live Queue');
 
-    vi.mocked(updateQueueStatus).mockResolvedValueOnce({ id: 10, status: 'paused' });
+    vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'paused' });
     fireEvent.click(screen.getByText('Pause Queue'));
     await screen.findByText('Paused - No New Students');
-    expect(updateQueueStatus).toHaveBeenCalledWith(10, 'paused');
+    expect(updateQueueState).toHaveBeenCalledWith(10, 'paused');
 
-    vi.mocked(updateQueueStatus).mockResolvedValueOnce({ id: 10, status: 'open' });
+    vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'open' });
     fireEvent.click(screen.getByText('Resume Queue'));
     await screen.findByText('Open - Accepting Students');
-    expect(updateQueueStatus).toHaveBeenCalledWith(10, 'open');
+    expect(updateQueueState).toHaveBeenCalledWith(10, 'open');
   });
 
   it('closes queue and returns to closed dashboard state', async () => {
@@ -456,14 +459,14 @@ describe('TADashboard page', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start Office Hours Live Queue/i }));
     await screen.findByText('Live Queue');
 
-    vi.mocked(updateQueueStatus).mockResolvedValueOnce({ id: 10, status: 'closed' });
+    vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'closed' });
     fireEvent.click(screen.getByText('Close Queue'));
 
     await waitFor(() => {
       expect(screen.queryByText('Live Queue')).not.toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: /Start Office Hours Live Queue|Select Time to Start Live Queue/i })).toBeInTheDocument();
-    expect(updateQueueStatus).toHaveBeenCalledWith(10, 'closed');
+    expect(updateQueueState).toHaveBeenCalledWith(10, 'closed');
   });
 
   it('opens announcement modal from dashboard and sends announcement', async () => {

@@ -23,10 +23,22 @@ export interface JoinQueueResponse {
   joined_at: string;
 }
 
+export interface QueueStateChangePayload {
+  previous_status: QueueStatus;
+  status: QueueStatus;
+}
+
 export interface QueueEvent {
-  type: "STUDENT_JOINED" | "STUDENT_LEFT" | "QUEUE_UPDATED" | "STUDENT_SERVED";
+  type:
+    | "STUDENT_JOINED"
+    | "STUDENT_LEFT"
+    | "QUEUE_UPDATED"
+    | "STUDENT_SERVED"
+    | "STUDENT_UP_NEXT"
+    | "ANNOUNCEMENT_SENT"
+    | "QUEUE_STATE_CHANGED";
   queue_id: number;
-  payload?: any;
+  payload?: QueueStateChangePayload | Record<string, unknown>;
 }
 
 export interface NextQueueResponse {
@@ -200,8 +212,12 @@ export async function createQueue(courseID: number): Promise<CreateQueueResponse
 }
 
 export async function updateQueueStatus(queueID: number, status: QueueStatus): Promise<UpdateQueueStatusResponse> {
-  const res = await fetch(`${API_BASE}/queues/${queueID}/status`, {
-    method: "POST",
+  return updateQueueState(queueID, status);
+}
+
+export async function updateQueueState(queueID: number, status: QueueStatus): Promise<UpdateQueueStatusResponse> {
+  const res = await fetch(`${API_BASE}/queues/${queueID}/state`, {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${getAuthToken()}`,
@@ -294,6 +310,16 @@ export function clearActiveQueueForOfficeHour(courseCode: string, timeRange: str
   writeActiveOfficeHourQueueMap(map);
 }
 
+const SSE_EVENT_NAMES: QueueEvent["type"][] = [
+  "STUDENT_JOINED",
+  "STUDENT_LEFT",
+  "STUDENT_SERVED",
+  "STUDENT_UP_NEXT",
+  "ANNOUNCEMENT_SENT",
+  "QUEUE_UPDATED",
+  "QUEUE_STATE_CHANGED",
+];
+
 export function subscribeToQueueEvents(
   queueID: number,
   onEvent: (event: QueueEvent) => void,
@@ -301,22 +327,28 @@ export function subscribeToQueueEvents(
 ): () => void {
   const eventSource = new EventSource(`${API_BASE}/queues/${queueID}/events`);
 
-  eventSource.onmessage = (event) => {
+  const handler = (msg: MessageEvent) => {
     try {
-      const data = JSON.parse(event.data);
+      const data: QueueEvent = JSON.parse(msg.data);
       onEvent(data);
-    } catch (error) {
+    } catch {
       onError(new Error("Failed to parse event"));
     }
   };
+
+  SSE_EVENT_NAMES.forEach((name) => {
+    eventSource.addEventListener(name, handler as EventListener);
+  });
 
   eventSource.onerror = () => {
     onError(new Error("SSE connection error"));
     eventSource.close();
   };
 
-  // Return unsubscribe function
   return () => {
+    SSE_EVENT_NAMES.forEach((name) => {
+      eventSource.removeEventListener(name, handler as EventListener);
+    });
     eventSource.close();
   };
 }

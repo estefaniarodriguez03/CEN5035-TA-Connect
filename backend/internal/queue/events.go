@@ -11,12 +11,13 @@ import (
 type EventType string
 
 const (
-	EventStudentJoined    EventType = "STUDENT_JOINED"
-	EventStudentLeft      EventType = "STUDENT_LEFT"
-	EventStudentUpNext    EventType = "STUDENT_UP_NEXT"
-	EventAnnouncementSent EventType = "ANNOUNCEMENT_SENT"
-	EventQueueUpdated     EventType = "QUEUE_UPDATED"
-	EventStudentServed    EventType = "STUDENT_SERVED"
+	EventStudentJoined       EventType = "STUDENT_JOINED"
+	EventStudentLeft         EventType = "STUDENT_LEFT"
+	EventStudentUpNext       EventType = "STUDENT_UP_NEXT"
+	EventAnnouncementSent    EventType = "ANNOUNCEMENT_SENT"
+	EventQueueUpdated        EventType = "QUEUE_UPDATED"
+	EventStudentServed       EventType = "STUDENT_SERVED"
+	EventQueueStateChanged   EventType = "QUEUE_STATE_CHANGED"
 )
 
 // AllEventTypes lists every SSE event name the hub may emit (for clients/tests).
@@ -27,6 +28,7 @@ var AllEventTypes = []EventType{
 	EventAnnouncementSent,
 	EventQueueUpdated,
 	EventStudentServed,
+	EventQueueStateChanged,
 }
 
 type QueueEvent struct {

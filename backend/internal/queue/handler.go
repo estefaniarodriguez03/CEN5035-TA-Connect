@@ -17,10 +17,14 @@ type CreateQueueRequest struct {
 	CourseID int `json:"course_id"`
 }
 
-// UpdateQueueStatusRequest is the JSON body for POST /api/queues/{id}/status.
-type UpdateQueueStatusRequest struct {
+// UpdateQueueStateRequest is the JSON body for PATCH /api/queues/{id}/state
+// and POST /api/queues/{id}/status (status: open | paused | closed).
+type UpdateQueueStateRequest struct {
 	Status string `json:"status"`
 }
+
+// UpdateQueueStatusRequest is an alias for backwards compatibility.
+type UpdateQueueStatusRequest = UpdateQueueStateRequest
 
 // PostAnnouncementRequest is the JSON body for POST /api/queues/{id}/announcement.
 type PostAnnouncementRequest struct {
@@ -98,8 +102,15 @@ func Join(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
 			return
 		}
-		if status != "open" {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "queue is not open for new entries"})
+		if QueueStatus(status) != QueueStatusOpen {
+			msg := "queue is not open for new entries"
+			switch QueueStatus(status) {
+			case QueueStatusPaused:
+				msg = "queue is paused"
+			case QueueStatusClosed:
+				msg = "queue is closed"
+			}
+			writeJSON(w, http.StatusConflict, map[string]string{"error": msg})
 			return
 		}
 
@@ -259,7 +270,7 @@ func Next(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can advance this queue"})
 			return
 		}
-		if status != "open" {
+		if QueueStatus(status) != QueueStatusOpen {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "queue is not open"})
 			return
 		}
@@ -329,11 +340,20 @@ func Next(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// UpdateStatus handles POST /api/queues/{id}/status.
-// TA owner can set status to open, paused, or closed.
+// UpdateQueueState handles PATCH /api/queues/{id}/state.
+// TA owner sets queue status to open, paused, or closed.
+func UpdateQueueState(db *sql.DB) http.HandlerFunc {
+	return updateQueueState(db, http.MethodPatch)
+}
+
+// UpdateStatus handles POST /api/queues/{id}/status (legacy; prefer PATCH .../state).
 func UpdateStatus(db *sql.DB) http.HandlerFunc {
+	return updateQueueState(db, http.MethodPost)
+}
+
+func updateQueueState(db *sql.DB, allowedMethod string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		if r.Method != allowedMethod {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
@@ -354,19 +374,21 @@ func UpdateStatus(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var req UpdateQueueStatusRequest
+		var req UpdateQueueStateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 			return
 		}
 
-		if req.Status != "open" && req.Status != "paused" && req.Status != "closed" {
+		newStatus := QueueStatus(req.Status)
+		if !newStatus.Valid() {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid status"})
 			return
 		}
 
 		var taID int
-		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM queues WHERE id = $1`, queueID).Scan(&taID)
+		var previous string
+		err = db.QueryRowContext(r.Context(), `SELECT ta_id, status FROM queues WHERE id = $1`, queueID).Scan(&taID, &previous)
 		if err == sql.ErrNoRows {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
 			return
@@ -380,19 +402,29 @@ func UpdateStatus(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if _, err := db.ExecContext(r.Context(), `UPDATE queues SET status = $2 WHERE id = $1`, queueID, req.Status); err != nil {
+		if _, err := db.ExecContext(r.Context(), `UPDATE queues SET status = $2 WHERE id = $1`, queueID, string(newStatus)); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
 			return
 		}
 
-		DefaultHub.Publish(queueID, QueueEvent{
-			Type:    EventQueueUpdated,
-			QueueID: queueID,
-		})
+		if previous != string(newStatus) {
+			DefaultHub.Publish(queueID, QueueEvent{
+				Type:    EventQueueStateChanged,
+				QueueID: queueID,
+				Payload: map[string]any{
+					"previous_status": previous,
+					"status":          string(newStatus),
+				},
+			})
+			DefaultHub.Publish(queueID, QueueEvent{
+				Type:    EventQueueUpdated,
+				QueueID: queueID,
+			})
+		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"id":     queueID,
-			"status": req.Status,
+			"status": string(newStatus),
 		})
 	}
 }

@@ -9,7 +9,8 @@ import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueStatus } from "../api/queue";
+import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueState } from "../api/queue";
+import type { QueueStatus, QueueEvent, QueueStateChangePayload } from "../api/queue";
 
 interface QueueStudent {
   id: number;
@@ -93,6 +94,10 @@ export default function TADashboard() {
         return;
       }
       setQueueStudents(mapQueueEntriesToStudents(queue.entries));
+      const serverStatus = queue.status as QueueStatus;
+      if (serverStatus && serverStatus !== queueStatus) {
+        setQueueStatus(serverStatus);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load queue';
       toast.info(message);
@@ -145,11 +150,23 @@ export default function TADashboard() {
 
     const unsubscribe = subscribeToQueueEvents(
       activeQueueID,
-      () => {
+      (evt: QueueEvent) => {
+        if (evt.type === 'QUEUE_STATE_CHANGED') {
+          const p = evt.payload as QueueStateChangePayload | undefined;
+          if (p?.status) {
+            setQueueStatus(p.status);
+            if (p.status === 'closed') {
+              toast.warning('Queue was closed');
+            } else if (p.status === 'paused') {
+              toast.info('Queue was paused');
+            } else if (p.status === 'open' && p.previous_status === 'paused') {
+              toast.info('Queue reopened');
+            }
+          }
+        }
         void refreshQueueData();
       },
       () => {
-        // silent reconnect fallback: just poll snapshot once on error
         void refreshQueueData();
       }
     );
@@ -184,7 +201,7 @@ export default function TADashboard() {
       setActiveQueueID(queueID);
       setActiveCourseCode(selectedOfficeHour.courseCode);
       setActiveOfficeHourTime(selectedOfficeHour.time);
-      await updateQueueStatus(queueID, 'open');
+      await updateQueueState(queueID, 'open');
       setQueueStatus('open');
       void refreshQueueData();
       toast.success(`Live Queue started for ${selectedOfficeHour.courseCode} ${selectedOfficeHour.time}`);
@@ -200,8 +217,8 @@ export default function TADashboard() {
       return;
     }
     try {
-      const nextStatus = queueStatus === 'paused' ? 'open' : 'paused';
-      await updateQueueStatus(activeQueueID, nextStatus);
+      const nextStatus: QueueStatus = queueStatus === 'paused' ? 'open' : 'paused';
+      await updateQueueState(activeQueueID, nextStatus);
       if (activeCourseCode && activeOfficeHourTime) {
         if (nextStatus === 'open') {
           setActiveQueueForOfficeHour(activeCourseCode, activeOfficeHourTime, activeQueueID);
@@ -220,7 +237,7 @@ export default function TADashboard() {
   const handleCloseQueue = async () => {
     try {
       if (activeQueueID) {
-        await updateQueueStatus(activeQueueID, 'closed');
+        await updateQueueState(activeQueueID, 'closed');
       }
       if (activeCourseCode) {
         clearActiveQueueForCourse(activeCourseCode);
