@@ -9,8 +9,8 @@ import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueState } from "../api/queue";
-import type { QueueStatus, QueueEvent, QueueStateChangePayload } from "../api/queue";
+import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, postQueueAnnouncement, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueState } from "../api/queue";
+import type { QueueStatus, QueueEvent, QueueStateChangePayload, AnnouncementSentPayload } from "../api/queue";
 import MyOfficeHoursPage from "./MyOfficeHoursPage";
 
 interface QueueStudent {
@@ -170,6 +170,12 @@ export default function TADashboard() {
         if (evt.type === 'STUDENT_JOINED') toast.info('A student joined the queue');
         if (evt.type === 'STUDENT_LEFT') toast.info('A student left the queue');
         if (evt.type === 'STUDENT_SERVED') toast.success('Student session started');
+        if (evt.type === 'ANNOUNCEMENT_SENT') {
+          const payload = evt.payload as AnnouncementSentPayload | undefined;
+          if (payload?.message) {
+            toast.info('Announcement sent', { description: payload.message });
+          }
+        }
 
         void refreshQueueData();
       },
@@ -285,14 +291,34 @@ export default function TADashboard() {
       toast.info('Only the first student can be advanced at this time.');
       return;
     }
-    await handleStartSession(student);
+    if (!activeQueueID) {
+      toast.info('No active queue found.');
+      return;
+    }
+    try {
+      await nextQueueStudent(activeQueueID);
+      await refreshQueueData();
+      toast.warning(`Removed ${student.name} from queue`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to remove student';
+      toast.info(message);
+    }
   };
 
-  const handleSendAnnouncement = () => {
-    if (announcementText.trim()) {
-      toast.success('Announcement sent!', { description: announcementText });
+  const handleSendAnnouncement = async () => {
+    const message = announcementText.trim();
+    if (!message) return;
+    if (!activeQueueID) {
+      toast.info('Start a live queue before sending announcements.');
+      return;
+    }
+    try {
+      await postQueueAnnouncement(activeQueueID, message);
       setAnnouncementText('');
       setShowAnnouncementModal(false);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : 'Failed to send announcement';
+      toast.error(errMsg);
     }
   };
 

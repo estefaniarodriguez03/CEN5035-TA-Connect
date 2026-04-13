@@ -7,7 +7,7 @@ import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
 import { getActiveQueueForOfficeHour, joinQueue, leaveQueue, getQueueOrNull, subscribeToQueueEvents } from "../api/queue";
-import type { QueueEvent, QueueStateChangePayload } from "../api/queue";
+import type { QueueEvent, QueueStateChangePayload, StudentUpNextPayload, AnnouncementSentPayload } from "../api/queue";
 
 interface TAHour {
   id: number;
@@ -31,6 +31,19 @@ interface CourseOption {
   label: string;
   courseCode: string;
   courseID: number;
+}
+
+function extractUpNextStudentID(payload: QueueEvent["payload"]): number | null {
+  const direct = payload as StudentUpNextPayload | undefined;
+  if (typeof direct?.student_id === "number") {
+    return direct.student_id;
+  }
+
+  // Backward compatibility with older backend payload shape:
+  // { students: [{ student_id, position }, ...], threshold }
+  const legacy = payload as { students?: Array<{ student_id?: number; position?: number }> } | undefined;
+  const head = legacy?.students?.find((s) => s.position === 1) ?? legacy?.students?.[0];
+  return typeof head?.student_id === "number" ? head.student_id : null;
 }
 
 export default function StudentDashboard() {
@@ -155,6 +168,12 @@ export default function StudentDashboard() {
             setQueueStatusForCourse(p.status);
           }
         }
+        if (evt.type === "ANNOUNCEMENT_SENT") {
+          const p = evt.payload as AnnouncementSentPayload | undefined;
+          if (p?.message) {
+            toast.info("Announcement from TA", { description: p.message });
+          }
+        }
       },
       () => { /* ignore errors for background subscription */ }
     );
@@ -213,6 +232,18 @@ export default function StudentDashboard() {
           return;
         } else if (p?.status === "open" && p.previous_status === "paused") {
           toast.success("The queue has been reopened!");
+        }
+      }
+      if (evt.type === "STUDENT_UP_NEXT") {
+        const nextStudentID = extractUpNextStudentID(evt.payload);
+        if (nextStudentID !== null && nextStudentID === user?.id) {
+          toast.success("You're up next. Please get ready!");
+        }
+      }
+      if (evt.type === "ANNOUNCEMENT_SENT") {
+        const p = evt.payload as AnnouncementSentPayload | undefined;
+        if (p?.message) {
+          toast.info("Announcement from TA", { description: p.message });
         }
       }
       void refreshFromServer();
@@ -358,6 +389,9 @@ export default function StudentDashboard() {
       setIsInQueue(true);
       setJoinedQueueID(queueID);
       setStudentPosition(response.position);
+      if (response.position === 1) {
+        toast.success("You're up next. Please get ready!");
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to join queue";
       toast.error(message);
