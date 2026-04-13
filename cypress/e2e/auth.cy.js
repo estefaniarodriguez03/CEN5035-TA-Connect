@@ -316,3 +316,46 @@ describe("Toast Notifications", () => {
     cy.contains("The TA has not opened the queue for this office hours yet").should("be.visible");
   });
 });
+
+describe("Student Dashboard — Queue Interaction", () => {
+  beforeEach(() => {
+    cy.visit("/login");
+    cy.get('input[placeholder="Email"]').type("student@ufl.edu");
+    cy.get('input[placeholder="Password"]').type("correctpassword");
+    cy.get('button[type="submit"]').click();
+    cy.url().should("include", "/student");
+  });
+
+  // No banner shown for open queue
+  it("does not display a status banner for an open queue", () => {
+    cy.get(".course-dropdown").select(
+      "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
+    );
+    cy.get(".queue-status-banner").should("not.exist");
+  });
+
+  // Banners are not shown while in queue
+  it("does not show queue status banners while the student is in the queue", () => {
+    cy.get(".course-dropdown").select(
+      "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
+    );
+    cy.contains("Join Queue").click();
+    cy.get(".queue-status-banner").should("not.exist");
+  });
+
+  // Wait time card is visible
+  it("displays the Estimated Wait Time card", () => {
+    cy.contains("Estimated Wait Time").should("be.visible");
+  });
+
+  // Wait time card shows student count
+  it("displays student count in the wait time card", () => {
+    cy.contains("currently in queue").should("be.visible");
+  });
+
+  // My Courses tab navigates correctly
+  it("navigates to the My Courses page when My Courses tab is clicked", () => {
+    cy.contains("My Courses").click();
+    cy.url().should("include", "/student/my-courses");
+  });
+});
