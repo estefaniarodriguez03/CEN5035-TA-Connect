@@ -28,6 +28,18 @@ export interface QueueStateChangePayload {
   status: QueueStatus;
 }
 
+export interface StudentUpNextPayload {
+  student_id: number;
+  position: number;
+}
+
+export interface AnnouncementSentPayload {
+  id: number;
+  message: string;
+  ta_id: number;
+  created_at: string;
+}
+
 export interface QueueEvent {
   type:
     | "STUDENT_JOINED"
@@ -38,7 +50,11 @@ export interface QueueEvent {
     | "ANNOUNCEMENT_SENT"
     | "QUEUE_STATE_CHANGED";
   queue_id: number;
-  payload?: QueueStateChangePayload | Record<string, unknown>;
+  payload?:
+    | QueueStateChangePayload
+    | StudentUpNextPayload
+    | AnnouncementSentPayload
+    | Record<string, unknown>;
 }
 
 export interface NextQueueResponse {
@@ -114,6 +130,22 @@ export async function leaveQueue(queueID: number): Promise<void> {
   if (!res.ok) {
     const message = await parseErrorMessage(res, "Failed to leave queue");
     throw new Error(message);
+  }
+}
+
+export async function postQueueAnnouncement(queueID: number, message: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/queues/${queueID}/announcement`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAuthToken()}`,
+    },
+    body: JSON.stringify({ message }),
+  });
+
+  if (!res.ok) {
+    const errMsg = await parseErrorMessage(res, "Failed to send announcement");
+    throw new Error(errMsg);
   }
 }
 
@@ -342,7 +374,6 @@ export function subscribeToQueueEvents(
 
   eventSource.onerror = () => {
     onError(new Error("SSE connection error"));
-    eventSource.close();
   };
 
   return () => {
