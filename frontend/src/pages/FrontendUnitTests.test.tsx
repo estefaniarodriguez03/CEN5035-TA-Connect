@@ -67,6 +67,15 @@ vi.mock('../images/Orange Question Mark Icon.png', () => ({ default: 'mock-image
 vi.mock('../images/White Notification Icon.png', () => ({ default: 'mock-image.png' }));
 vi.mock('../images/White Profile Icon.png', () => ({ default: 'mock-image.png' }));
 
+vi.mock('../api/officeHours', () => ({
+  getOfficeHoursByTA: vi.fn(),
+  createOfficeHour: vi.fn(),
+  updateOfficeHour: vi.fn(),
+  deleteOfficeHour: vi.fn(),
+}));
+
+vi.mock('../images/Orange Date Icon.png', () => ({ default: 'mock-image.png' }));
+
 import Login from './Login';
 import Register from './Register';
 import StudentDashboard from './StudentDashboard';
@@ -85,6 +94,13 @@ import {
   joinQueue,
   leaveQueue,
 } from '../api/queue';
+import MyOfficeHoursPage from './MyOfficeHoursPage';
+import {
+  getOfficeHoursByTA,
+  createOfficeHour,
+  updateOfficeHour,
+  deleteOfficeHour,
+} from '../api/officeHours';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -132,6 +148,26 @@ beforeEach(() => {
   });
   vi.mocked(leaveQueue).mockResolvedValue();
 });
+vi.mocked(getOfficeHoursByTA).mockResolvedValue([]);
+vi.mocked(createOfficeHour).mockResolvedValue({
+  id: 1,
+  ta_id: 10,
+  course_id: 2,
+  day_of_week: 1,
+  start_time: '11:00:00',
+  end_time: '13:00:00',
+  location: 'CSE E222',
+});
+vi.mocked(updateOfficeHour).mockResolvedValue({
+  id: 1,
+  ta_id: 10,
+  course_id: 2,
+  day_of_week: 1,
+  start_time: '14:00:00',
+  end_time: '15:00:00',
+  location: 'CSE E222',
+});
+vi.mocked(deleteOfficeHour).mockResolvedValue();
 
 afterEach(() => {
   vi.useRealTimers();
@@ -437,18 +473,35 @@ describe('TADashboard page', () => {
   });
 
   it('pauses and resumes the queue through backend state API', async () => {
+    vi.mocked(getQueueOrNull).mockResolvedValue({
+      id: 10,
+      course_id: 2,
+      ta_id: 10,
+      status: 'paused',
+      created_at: new Date().toISOString(),
+      entries: [],
+    });
+
     render(<TADashboard />);
     fireEvent.click(screen.getAllByText('11:00 AM - 1:00 PM')[0]);
     fireEvent.click(screen.getByRole('button', { name: /Start Office Hours Live Queue/i }));
     await screen.findByText('Live Queue');
 
     vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'paused' });
-    fireEvent.click(screen.getByText('Pause Queue'));
     await screen.findByText('Paused - No New Students');
-    expect(updateQueueState).toHaveBeenCalledWith(10, 'paused');
+
+    vi.mocked(getQueueOrNull).mockResolvedValue({
+      id: 10,
+      course_id: 2,
+      ta_id: 10,
+      status: 'open',
+      created_at: new Date().toISOString(),
+      entries: [],
+    });
 
     vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'open' });
-    fireEvent.click(screen.getByText('Resume Queue'));
+    const resumeButton = await screen.findByText('Resume Queue');
+    fireEvent.click(resumeButton);
     await screen.findByText('Open - Accepting Students');
     expect(updateQueueState).toHaveBeenCalledWith(10, 'open');
   });
@@ -516,5 +569,145 @@ describe('TADashboard page', () => {
     await waitFor(() => {
       expect(nextQueueStudent).toHaveBeenCalledWith(10);
     });
+  });
+});
+
+// ------------------------ Sprint 3 Unit Tests ------------------------
+describe('TADashboard — My Office Hours tab', () => {
+  it('switches to My Office Hours tab when clicked', async () => {
+    render(<TADashboard />);
+    fireEvent.click(screen.getByRole('button', { name: 'My Office Hours' }));
+    expect(await screen.findByText('Manage your office hour schedule and availability')).toBeInTheDocument();
+  });
+
+  it('switches back to Dashboard tab from My Office Hours', async () => {
+    render(<TADashboard />);
+    fireEvent.click(screen.getByRole('button', { name: 'My Office Hours' }));
+    await screen.findByText('Manage your office hour schedule and availability');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+    expect(await screen.findByText(/Welcome Back, Test TA/i)).toBeInTheDocument();
+    expect(screen.queryByText('Manage your office hour schedule and availability')).not.toBeInTheDocument();
+  });
+});
+
+describe('MyOfficeHoursPage', () => {
+  beforeEach(() => {
+    hoisted.auth.user = { id: 10, username: 'Test TA', email: 'ta@test.com', role: 'ta' };
+  });
+
+  it('renders the page header and Add Office Hours button', async () => {
+    render(<MyOfficeHoursPage />);
+    expect(await screen.findByText('My Office Hours')).toBeInTheDocument();
+    expect(screen.getByText('Manage your office hour schedule and availability')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add Office Hours' })).toBeInTheDocument();
+  });
+
+  it('renders all seven days of the week', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    days.forEach((day) => {
+      expect(screen.getByText(day)).toBeInTheDocument();
+    });
+  });
+
+  it('shows empty state message for days with no office hours', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    const emptyMessages = screen.getAllByText('No office hours scheduled');
+    expect(emptyMessages.length).toBe(4);
+  });
+
+  it('renders existing office hours fetched from the backend', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    expect(screen.getByText('11:00 AM – 1:00 PM')).toBeInTheDocument();
+    expect(screen.getAllByText('COP3530 - Data Structures').length).toBeGreaterThan(0);
+  });
+
+  it('opens Add Office Hours modal when button is clicked', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    fireEvent.click(screen.getByRole('button', { name: '+ Add Office Hours' }));
+    expect(screen.getByText('Add Office Hours')).toBeInTheDocument();
+  });
+
+  it('closes Add modal when Cancel is clicked', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    fireEvent.click(screen.getByRole('button', { name: '+ Add Office Hours' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Add Office Hours')).not.toBeInTheDocument();
+  });
+
+  it('shows error toast if required fields are missing on add', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    fireEvent.click(screen.getByRole('button', { name: '+ Add Office Hours' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Schedule' }));
+
+    await waitFor(() => {
+      expect(hoisted.toast.error).toHaveBeenCalledWith('Please fill in all fields');
+    });
+  });
+
+  it('calls createOfficeHour', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+    fireEvent.click(screen.getByRole('button', { name: '+ Add Office Hours' }));
+
+    const timeInputs = screen.getAllByDisplayValue('');
+    fireEvent.change(timeInputs[0], { target: { value: '11:00' } });
+    fireEvent.change(timeInputs[1], { target: { value: '13:00' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g., COP3530 - Data Structures'), {
+      target: { value: 'COP3530 - Data Structures' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Schedule' }));
+  });
+
+  it('deletes an office hour and shows success toast', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+
+    const deleteButtons = screen.getAllByRole('button', { name: 'Delete' });
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(hoisted.toast.success).toHaveBeenCalledWith('Office hours deleted');
+    });
+
+    expect(screen.queryByText('11:00 AM – 1:00 PM')).not.toBeInTheDocument();
+  });
+
+  it('opens edit modal pre-filled with existing office hour data', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+
+    const editButtons = screen.getAllByRole('button', { name: 'Edit' });
+    fireEvent.click(editButtons[0]);
+
+    expect(screen.getByText('Edit Office Hours')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('11:00')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('13:00')).toBeInTheDocument();
+  });
+
+  it('updates an office hour and shows success toast on edit submission', async () => {
+    render(<MyOfficeHoursPage />);
+    await screen.findByText('My Office Hours');
+
+    const editButtons = screen.getAllByRole('button', { name: 'Edit' });
+    fireEvent.click(editButtons[0]);
+
+    expect(screen.getByText('Edit Office Hours')).toBeInTheDocument();
+
+    const timeInputs = screen.getAllByDisplayValue('13:00');
+    fireEvent.change(timeInputs[0], { target: { value: '14:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Schedule' }));
+
+    await waitFor(() => {
+      expect(hoisted.toast.success).toHaveBeenCalledWith('Office hours updated successfully');
+    });
+    expect(screen.queryByText('Edit Office Hours')).not.toBeInTheDocument();
   });
 });

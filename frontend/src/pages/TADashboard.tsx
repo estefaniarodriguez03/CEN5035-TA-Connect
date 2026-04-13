@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueState } from "../api/queue";
 import type { QueueStatus, QueueEvent, QueueStateChangePayload } from "../api/queue";
+import MyOfficeHoursPage from "./MyOfficeHoursPage";
 
 interface QueueStudent {
   id: number;
@@ -33,6 +34,7 @@ interface OfficeHour {
 export default function TADashboard() {
   const { user, logout } = useAuth();
 
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'office-hours' | 'queue'>('dashboard');
   const [queueStatus, setQueueStatus] = useState<'closed' | 'open' | 'paused'>('closed');
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementText, setAnnouncementText] = useState('');
@@ -109,10 +111,10 @@ export default function TADashboard() {
     avgWaitTime: queueStudents.length === 0
       ? '0 min'
       : formatWait(
-          Math.round(
-            queueStudents.reduce((sum, s) => sum + getWaitMinutes(s.joinedAt), 0) / queueStudents.length
-          )
-        ),
+        Math.round(
+          queueStudents.reduce((sum, s) => sum + getWaitMinutes(s.joinedAt), 0) / queueStudents.length
+        )
+      ),
     currentQueueLength: queueStatus === 'closed' ? 0 : queueStudents.length,
     longestWaitTime: queueStatus === 'closed' || queueStudents.length === 0
       ? '0 min'
@@ -164,6 +166,11 @@ export default function TADashboard() {
             }
           }
         }
+
+        if (evt.type === 'STUDENT_JOINED') toast.info('A student joined the queue');
+        if (evt.type === 'STUDENT_LEFT') toast.info('A student left the queue');
+        if (evt.type === 'STUDENT_SERVED') toast.success('Student session started');
+
         void refreshQueueData();
       },
       () => {
@@ -322,9 +329,24 @@ export default function TADashboard() {
             <span className="logo-text">TA Connect</span>
           </div>
           <div className="nav-tabs">
-            <button className="nav-tab active">Dashboard</button>
-            <button className="nav-tab">My Office Hours</button>
-            <button className="nav-tab">Queue</button>
+            <button
+              className={`nav-tab ${activeTab === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setActiveTab('dashboard')}
+            >
+              Dashboard
+            </button>
+            <button
+              className={`nav-tab ${activeTab === 'office-hours' ? 'active' : ''}`}
+              onClick={() => setActiveTab('office-hours')}
+            >
+              My Office Hours
+            </button>
+            <button
+              className={`nav-tab ${activeTab === 'queue' ? 'active' : ''}`}
+              onClick={() => setActiveTab('queue')}
+            >
+              Queue
+            </button>
           </div>
         </div>
         <div className="navbar-right">
@@ -337,269 +359,276 @@ export default function TADashboard() {
         </div>
       </nav>
 
-      {queueStatus === 'closed' ? (
-        // CLOSED STATE - Dashboard view
-        <>
-        <div className="dashboard-content live-queue-dashboard-content">
-          <div className="main-section queue-live-layout">
-
-            {/* Welcome Section */}
-            <div className="welcome-section">
-              <h1 className="welcome-title">
-                Welcome Back, {user?.username || "Lovely TA"}! Here is your Schedule for the Day
-              </h1>
-              <div className="schedule-cards">
-                {todaySchedule.map((slot) => (
-                  <div
-                    key={slot.id}
-                    className={`schedule-card ${selectedOfficeHourID === slot.id ? 'selected-office-hour' : ''}`}
-                    onClick={() => setSelectedOfficeHourID(slot.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setSelectedOfficeHourID(slot.id);
-                      }
-                    }}
-                  >
-                    <div className="schedule-time">
-                      <img src={orangeClockIcon} alt="Time" className="time-icon" />
-                      <span className="time-text">{slot.time}</span>
-                    </div>
-                    <div className="schedule-course">{slot.course}</div>
-                  </div>
-                ))}
-              </div>
-              <button onClick={() => void handleOpenQueue()} className="start-queue-btn" disabled={!selectedOfficeHourID}>
-                <span className="play-icon">▶</span>
-                {selectedOfficeHourID ? 'Start Office Hours Live Queue' : 'Select Time to Start Live Queue'}
-              </button>
-            </div>
-
-            {/* Stats Grid */}
-            <div className="stats-grid">
-              <div className="stat-card blue">
-                <div className="stat-header">
-                  <img src={orangeGroupIcon} alt="Students" className="stat-icon" />
-                  <span className="stat-label">Students Helped Today</span>
-                </div>
-                <div className="stat-value">{stats.studentsHelped}</div>
-              </div>
-              <div className="stat-card orange">
-                <div className="stat-header">
-                  <img src={orangeClockIcon} alt="Clock" className="stat-icon" />
-                  <span className="stat-label">Avg Wait Time</span>
-                </div>
-                <div className="stat-value">{stats.avgWaitTime}</div>
-              </div>
-              <div className="stat-card green">
-                <div className="stat-header">
-                  <img src={orangeGroupIcon} alt="Queue" className="stat-icon" />
-                  <span className="stat-label">Current Queue Length</span>
-                </div>
-                <div className="stat-value">{stats.currentQueueLength}</div>
-              </div>
-              <div className="stat-card purple">
-                <div className="stat-header">
-                  <img src={orangeClockIcon} alt="Time" className="stat-icon" />
-                  <span className="stat-label">Longest Wait Time</span>
-                </div>
-                <div className="stat-value">{stats.longestWaitTime}</div>
-              </div>
-              <div className="stat-card yellow">
-                <div className="stat-header">
-                  <img src={orangeQuestionIcon} alt="Topic" className="stat-icon" />
-                  <span className="stat-label">Most Common Topic</span>
-                </div>
-                <div className="stat-value topic">{stats.mostCommonTopic}</div>
-              </div>
-              <div className="stat-card light-purple">
-                <div className="stat-header">
-                  <img src={orangeClockIcon} alt="Duration" className="stat-icon" />
-                  <span className="stat-label">Avg Session Duration</span>
-                </div>
-                <div className="stat-value">{stats.avgSessionDuration}</div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Sidebar */}
-          <aside className="sidebar">
-            <div className="sidebar-content">
-              <h2 className="sidebar-title">This Week's Office Hours</h2>
-              {officeHoursSidebar}
-            </div>
-          </aside>
-        </div>
-
-        {/* Announcements - Full Width */}
-        <div className="announcements-section dashboard-announcements-full-width">
-          <div className="announcements-content">
-            <div className="announcements-text">
-              <img src={blueMessageIcon} alt="Announcements" className="announcement-icon" />
-              <div>
-                <h3>Send Announcements to Your Students</h3>
-                <p>Broadcast messages to all students enrolled in your courses</p>
-              </div>
-            </div>
-            <button className="send-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
-              Send Announcement
-            </button>
-          </div>
-        </div>
-        </>
+      {/* Tab: My Office Hours */}
+      {activeTab === 'office-hours' ? (
+        <MyOfficeHoursPage />
       ) : (
-        // OPEN/PAUSED STATE - Live queue view
-        <div className="dashboard-content">
-          <div className="main-section">
+        <>
+          {queueStatus === 'closed' ? (
+            // CLOSED STATE - Dashboard view
+            <>
+              <div className="dashboard-content live-queue-dashboard-content">
+                <div className="main-section queue-live-layout">
 
-            {/* Queue Header */}
-            <div className="welcome-section live-queue-header-section">
-              <div className="live-queue-header-row">
-                <div>
-                  <h1 className="welcome-title live-queue-title">Live Queue</h1>
-                  <div className="live-queue-status-row">
-                    <div className={`live-queue-status-dot ${queueStatus === 'open' ? 'is-open' : 'is-paused'}`} />
-                    <span className="live-queue-status-text">
-                      {queueStatus === 'open' ? 'Open - Accepting Students' : 'Paused - No New Students'}
-                    </span>
+                  {/* Welcome Section */}
+                  <div className="welcome-section">
+                    <h1 className="welcome-title">
+                      Welcome Back, {user?.username || "Lovely TA"}! Here is your Schedule for the Day
+                    </h1>
+                    <div className="schedule-cards">
+                      {todaySchedule.map((slot) => (
+                        <div
+                          key={slot.id}
+                          className={`schedule-card ${selectedOfficeHourID === slot.id ? 'selected-office-hour' : ''}`}
+                          onClick={() => setSelectedOfficeHourID(slot.id)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedOfficeHourID(slot.id);
+                            }
+                          }}
+                        >
+                          <div className="schedule-time">
+                            <img src={orangeClockIcon} alt="Time" className="time-icon" />
+                            <span className="time-text">{slot.time}</span>
+                          </div>
+                          <div className="schedule-course">{slot.course}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={() => void handleOpenQueue()} className="start-queue-btn" disabled={!selectedOfficeHourID}>
+                      <span className="play-icon">▶</span>
+                      {selectedOfficeHourID ? 'Start Office Hours Live Queue' : 'Select Time to Start Live Queue'}
+                    </button>
                   </div>
+
+                  {/* Stats Grid */}
+                  <div className="stats-grid">
+                    <div className="stat-card blue">
+                      <div className="stat-header">
+                        <img src={orangeGroupIcon} alt="Students" className="stat-icon" />
+                        <span className="stat-label">Students Helped Today</span>
+                      </div>
+                      <div className="stat-value">{stats.studentsHelped}</div>
+                    </div>
+                    <div className="stat-card orange">
+                      <div className="stat-header">
+                        <img src={orangeClockIcon} alt="Clock" className="stat-icon" />
+                        <span className="stat-label">Avg Wait Time</span>
+                      </div>
+                      <div className="stat-value">{stats.avgWaitTime}</div>
+                    </div>
+                    <div className="stat-card green">
+                      <div className="stat-header">
+                        <img src={orangeGroupIcon} alt="Queue" className="stat-icon" />
+                        <span className="stat-label">Current Queue Length</span>
+                      </div>
+                      <div className="stat-value">{stats.currentQueueLength}</div>
+                    </div>
+                    <div className="stat-card purple">
+                      <div className="stat-header">
+                        <img src={orangeClockIcon} alt="Time" className="stat-icon" />
+                        <span className="stat-label">Longest Wait Time</span>
+                      </div>
+                      <div className="stat-value">{stats.longestWaitTime}</div>
+                    </div>
+                    <div className="stat-card yellow">
+                      <div className="stat-header">
+                        <img src={orangeQuestionIcon} alt="Topic" className="stat-icon" />
+                        <span className="stat-label">Most Common Topic</span>
+                      </div>
+                      <div className="stat-value topic">{stats.mostCommonTopic}</div>
+                    </div>
+                    <div className="stat-card light-purple">
+                      <div className="stat-header">
+                        <img src={orangeClockIcon} alt="Duration" className="stat-icon" />
+                        <span className="stat-label">Avg Session Duration</span>
+                      </div>
+                      <div className="stat-value">{stats.avgSessionDuration}</div>
+                    </div>
+                  </div>
+
                 </div>
-                <div className="live-queue-action-row">
-                  <button
-                    onClick={handlePauseQueue}
-                    className={`queue-action-btn pause-btn ${queueStatus === 'paused' ? 'paused' : 'open'}`}
-                  >
-                    {queueStatus === 'paused' ? 'Resume Queue' : 'Pause Queue'}
-                  </button>
-                  <button
-                    onClick={handleCloseQueue}
-                    className="queue-action-btn close-btn"
-                  >
-                    Close Queue
-                  </button>
-                  <button
-                    className="send-announcement-btn live-send-announcement-btn"
-                    onClick={() => setShowAnnouncementModal(true)}
-                  >
+
+                {/* Sidebar */}
+                <aside className="sidebar">
+                  <div className="sidebar-content">
+                    <h2 className="sidebar-title">This Week's Office Hours</h2>
+                    {officeHoursSidebar}
+                  </div>
+                </aside>
+              </div>
+
+              {/* Announcements - Full Width */}
+              <div className="announcements-section dashboard-announcements-full-width">
+                <div className="announcements-content">
+                  <div className="announcements-text">
+                    <img src={blueMessageIcon} alt="Announcements" className="announcement-icon" />
+                    <div>
+                      <h3>Send Announcements to Your Students</h3>
+                      <p>Broadcast messages to all students enrolled in your courses</p>
+                    </div>
+                  </div>
+                  <button className="send-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
                     Send Announcement
                   </button>
                 </div>
               </div>
-            </div>
+            </>
+          ) : (
+            // OPEN/PAUSED STATE - Live queue view
+            <div className="dashboard-content">
+              <div className="main-section">
 
-            {/* Queue Stats */}
-            <div className="stats-grid live-queue-stats-grid">
-              <div className="stat-card blue">
-                <div className="stat-header">
-                  <img src={orangeGroupIcon} alt="Students" className="stat-icon" />
-                  <span className="stat-label">Total in Queue</span>
-                </div>
-                <div className="stat-value">{queueStudents.length}</div>
-              </div>
-              <div className="stat-card orange">
-                <div className="stat-header">
-                  <img src={orangeClockIcon} alt="Clock" className="stat-icon" />
-                  <span className="stat-label">Longest Wait</span>
-                </div>
-                <div className="stat-value">{sortedQueue.length > 0 ? sortedQueue[0].waitTime : '0 min'}</div>
-              </div>
-              <div className="stat-card green">
-                <div className="stat-header">
-                  <img src={orangeClockIcon} alt="Avg" className="stat-icon" />
-                  <span className="stat-label">Avg Wait Time</span>
-                </div>
-                <div className="stat-value">{stats.avgWaitTime}</div>
-              </div>
-            </div>
-
-            {/* Queue List */}
-            <div className="sidebar-content queue-list-panel">
-              <h2 className="sidebar-title">Students in Queue ({sortedQueue.length})</h2>
-              <div className="queue-list-scroll-region">
-                {sortedQueue.length === 0 ? (
-                  <div className="queue-empty-state">
-                    <p className="queue-empty-title">No students in queue</p>
-                    <p className="queue-empty-subtitle">
-                      Students will appear here when they join
-                    </p>
-                  </div>
-                ) : (
-                  <div className="queue-students-list">
-                  {sortedQueue.map((student, index) => (
-                    <div key={student.id} className="office-hour-card">
-                      <div className="queue-student-row">
-                        <div className="queue-student-left">
-                          <div className="queue-student-position-badge">
-                            {index + 1}
-                          </div>
-                          <div>
-                            <div className="queue-student-name">
-                              {student.name}
-                            </div>
-                            <div className="queue-student-meta">
-                              <span className="queue-student-wait">
-                                Waiting {student.waitTime}
-                              </span>
-                              {student.topic && (
-                                <>
-                                  <span className="queue-topic-separator">•</span>
-                                  <span className="queue-student-topic">
-                                    {student.topic}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="office-hour-actions queue-student-actions">
-                          {index === 0 && (
-                            <button
-                              onClick={() => handleStartSession(student)}
-                              className="start-queue-btn queue-start-session-btn"
-                            >
-                              Start Session
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleRemoveStudent(student)}
-                            className="cancel-btn queue-remove-btn"
-                          >
-                            Remove
-                          </button>
-                        </div>
+                {/* Queue Header */}
+                <div className="welcome-section live-queue-header-section">
+                  <div className="live-queue-header-row">
+                    <div>
+                      <h1 className="welcome-title live-queue-title">Live Queue</h1>
+                      <div className="live-queue-status-row">
+                        <div className={`live-queue-status-dot ${queueStatus === 'open' ? 'is-open' : 'is-paused'}`} />
+                        <span className="live-queue-status-text">
+                          {queueStatus === 'open' ? 'Open - Accepting Students' : 'Paused - No New Students'}
+                        </span>
                       </div>
                     </div>
-                  ))}
+                    <div className="live-queue-action-row">
+                      <button
+                        onClick={handlePauseQueue}
+                        className={`queue-action-btn pause-btn ${queueStatus === 'paused' ? 'paused' : 'open'}`}
+                      >
+                        {queueStatus === 'paused' ? 'Resume Queue' : 'Pause Queue'}
+                      </button>
+                      <button
+                        onClick={handleCloseQueue}
+                        className="queue-action-btn close-btn"
+                      >
+                        Close Queue
+                      </button>
+                      <button
+                        className="send-announcement-btn live-send-announcement-btn"
+                        onClick={() => setShowAnnouncementModal(true)}
+                      >
+                        Send Announcement
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
+                </div>
 
-          {/* Sidebar */}
-          <aside className="sidebar">
-            <div className="sidebar-content live-sidebar-office-hours">
-              <h2 className="sidebar-title">This Week's Office Hours</h2>
-              {officeHoursSidebar}
-            </div>
-            <div className="announcements-section live-sidebar-announcements">
-              <div className="live-announcements-header">
-                <h3 className="live-announcements-title">
-                  Announcements
-                </h3>
-                <p className="live-announcements-subtitle">
-                  Send updates to all students in the queue
-                </p>
+                {/* Queue Stats */}
+                <div className="stats-grid live-queue-stats-grid">
+                  <div className="stat-card blue">
+                    <div className="stat-header">
+                      <img src={orangeGroupIcon} alt="Students" className="stat-icon" />
+                      <span className="stat-label">Total in Queue</span>
+                    </div>
+                    <div className="stat-value">{queueStudents.length}</div>
+                  </div>
+                  <div className="stat-card orange">
+                    <div className="stat-header">
+                      <img src={orangeClockIcon} alt="Clock" className="stat-icon" />
+                      <span className="stat-label">Longest Wait</span>
+                    </div>
+                    <div className="stat-value">{sortedQueue.length > 0 ? sortedQueue[0].waitTime : '0 min'}</div>
+                  </div>
+                  <div className="stat-card green">
+                    <div className="stat-header">
+                      <img src={orangeClockIcon} alt="Avg" className="stat-icon" />
+                      <span className="stat-label">Avg Wait Time</span>
+                    </div>
+                    <div className="stat-value">{stats.avgWaitTime}</div>
+                  </div>
+                </div>
+
+                {/* Queue List */}
+                <div className="sidebar-content queue-list-panel">
+                  <h2 className="sidebar-title">Students in Queue ({sortedQueue.length})</h2>
+                  <div className="queue-list-scroll-region">
+                    {sortedQueue.length === 0 ? (
+                      <div className="queue-empty-state">
+                        <p className="queue-empty-title">No students in queue</p>
+                        <p className="queue-empty-subtitle">
+                          Students will appear here when they join
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="queue-students-list">
+                        {sortedQueue.map((student, index) => (
+                          <div key={student.id} className="office-hour-card">
+                            <div className="queue-student-row">
+                              <div className="queue-student-left">
+                                <div className="queue-student-position-badge">
+                                  {index + 1}
+                                </div>
+                                <div>
+                                  <div className="queue-student-name">
+                                    {student.name}
+                                  </div>
+                                  <div className="queue-student-meta">
+                                    <span className="queue-student-wait">
+                                      Waiting {student.waitTime}
+                                    </span>
+                                    {student.topic && (
+                                      <>
+                                        <span className="queue-topic-separator">•</span>
+                                        <span className="queue-student-topic">
+                                          {student.topic}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="office-hour-actions queue-student-actions">
+                                {index === 0 && (
+                                  <button
+                                    onClick={() => handleStartSession(student)}
+                                    className="start-queue-btn queue-start-session-btn"
+                                  >
+                                    Start Session
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleRemoveStudent(student)}
+                                  className="cancel-btn queue-remove-btn"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <button className="send-announcement-btn full-width-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
-                Send Announcement
-              </button>
+
+              {/* Sidebar */}
+              <aside className="sidebar">
+                <div className="sidebar-content live-sidebar-office-hours">
+                  <h2 className="sidebar-title">This Week's Office Hours</h2>
+                  {officeHoursSidebar}
+                </div>
+                <div className="announcements-section live-sidebar-announcements">
+                  <div className="live-announcements-header">
+                    <h3 className="live-announcements-title">
+                      Announcements
+                    </h3>
+                    <p className="live-announcements-subtitle">
+                      Send updates to all students in the queue
+                    </p>
+                  </div>
+                  <button className="send-announcement-btn full-width-announcement-btn" onClick={() => setShowAnnouncementModal(true)}>
+                    Send Announcement
+                  </button>
+                </div>
+              </aside>
             </div>
-          </aside>
-        </div>
+          )}
+        </>
       )}
 
       {/* Announcement Modal */}
