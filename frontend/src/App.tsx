@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import StudentDashboard from "./pages/StudentDashboard";
+import MyCoursesPage from "./pages/MyCoursesPage";
 import TADashboard from "./pages/TADashboard";
 import { useAuth } from "./context/AuthContext";
 
@@ -34,6 +35,15 @@ export default function App() {
           element={
             <ProtectedRoute role="student">
               <StudentDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/student/my-courses"
+          element={
+            <ProtectedRoute role="student">
+              <MyCoursesPage />
             </ProtectedRoute>
           }
         />
