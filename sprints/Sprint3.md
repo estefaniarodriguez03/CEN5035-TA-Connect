@@ -141,6 +141,79 @@
   - **SSE smoke test**: connects to `GET /api/queues/{id}/events`, then triggers a join
   - **Expectation**: receives `event: STUDENT_JOINED` on the SSE stream
 
+### Backend Go Tests (`backend/api_e2e_test.go`) — Sprint 3 additions
+
+**Helper:** `readSSEEventUntil` — reads the SSE stream until a named `event:` line appears and returns the JSON from the following `data:` line (full queue event envelope: `type`, `queue_id`, `payload`). Used by several notification SSE tests below.
+
+- **`TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed`**
+  - **PATCH queue state (TA)**: `PATCH /api/queues/{id}/state` with `{"status":"paused"}` → **200 OK**
+  - **Join while paused**: `POST /api/queues/{id}/join` → **409 Conflict** with error `queue is paused`
+  - **PATCH closed**: `{"status":"closed"}` → join again → **409** with `queue is closed`
+  - **Re-open**: `{"status":"open"}` → join → **201 Created**
+  - **Wrong method**: `POST` to `/state` → **405 Method Not Allowed**
+
+- **`TestSSE_EmitsQueueStateChanged`**
+  - **SSE + state change**: connects to `GET /api/queues/{id}/events`, then TA `PATCH /api/queues/{id}/state` to `paused`
+  - **Expectation**: stream receives `QUEUE_STATE_CHANGED` with payload `previous_status: open`, `status: paused`
+
+- **`TestSSE_EmitsStudentUpNextAfterJoin`**
+  - **SSE + join**: opens events stream, student joins an empty queue (becomes position 1)
+  - **Expectation**: `STUDENT_UP_NEXT` envelope with `payload.student_id` matching the joiner and `payload.position` **1**
+
+- **`TestSSE_EmitsAnnouncementSent`**
+  - **SSE + announcement**: opens events stream, owning TA `POST /api/queues/{id}/announcement` with a message → **201 Created**
+  - **Expectation**: `ANNOUNCEMENT_SENT` with same `message` and correct `ta_id` / `queue_id`
+
+- **`TestPostAnnouncement_HappyPath`**
+  - **POST announcement**: owning TA posts `{ "message": "..." }` → **201 Created**
+  - **Response body**: includes `id`, `queue_id`, `message`, `created_at`
+
+- **`TestPostAnnouncement_StudentForbidden`**
+  - **Student cannot announce**: `POST /api/queues/{id}/announcement` with student token → **403 Forbidden**
+
+- **`TestPostAnnouncement_NonOwningTAForbidden`**
+  - **Non-owner TA**: another TA (not the queue owner) posts an announcement → **403 Forbidden**
+
+- **`TestCreateOfficeHour_HappyPath`**
+  - **Create office hour (TA)**: `POST /api/office-hours` with valid body → **201 Created** and persisted fields
+
+- **`TestCreateOfficeHour_UnauthorizedAndStudentForbidden`**
+  - **No token**: `POST /api/office-hours` → **401 Unauthorized**
+  - **Student role**: same with student token → **403 Forbidden**
+
+- **`TestCreateOfficeHour_OverlapRejected`**
+  - **Overlapping slot**: second create for same TA/course/day with overlapping times → **409 Conflict**
+
+- **`TestUpdateOfficeHour_HappyPath`**
+  - **Update (TA owner)**: `PUT /api/office-hours/{id}` → **200 OK** and updated fields
+
+- **`TestUpdateOfficeHour_OverlapRejected`**
+  - **Update would overlap** another slot → **409 Conflict**
+
+- **`TestUpdateOfficeHour_NotFoundAndForbidden`**
+  - **Unknown id**: `PUT` → **404 Not Found**
+  - **Wrong TA**: another TA updates someone else’s row → **403 Forbidden**
+
+- **`TestDeleteOfficeHour_HappyPath`**
+  - **Delete (TA owner)**: `DELETE /api/office-hours/{id}` → **204 No Content**
+
+- **`TestDeleteOfficeHour_UnauthorizedNotFoundForbidden`**
+  - **No token**: `DELETE` → **401**
+  - **Unknown id**: → **404**
+  - **Wrong TA**: → **403**
+
+- **`TestListOfficeHoursByTA_HappyPathAndEmpty`**
+  - **List by TA**: `GET /api/office-hours/ta/{ta_id}` → **200 OK** with expected rows; empty TA returns empty list
+
+- **`TestListOfficeHoursByTA_InvalidID`**
+  - **Invalid TA id** in path → **400 Bad Request**
+
+- **`TestListOfficeHoursByCourse_HappyPath`**
+  - **List by course**: `GET /api/office-hours/course/{course_id}` → **200 OK** with expected office hours
+
+- **`TestListOfficeHoursByCourse_InvalidID`**
+  - **Invalid course id** in path → **400 Bad Request**
+
 ## Updated Documentation for Backend API 
 
 The backend is an **HTTP API** in **Go** with **chi** and **PostgreSQL** (`backend/internal/routes/routes.go`, `backend/cmd/server/main.go`, `go.mod`). Most routes use **JSON** request/response bodies. Queues follow **resource-style** paths (`/api/queues`, `/api/queues/{id}`), while **auth** and **queue actions** use **POST** “command” paths (`/api/login`, `/api/register`, `/join`, `/leave`, `/next`) — common for web apps, but not a strict REST-only design. **Live updates** use **Server-Sent Events (SSE)** on **`GET /api/queues/{id}/events`** (`Content-Type: text/event-stream`), not a JSON response body.
@@ -173,8 +246,13 @@ The JWT carries **`user_id`**, **`email`**, and **`role`** (`student` or `ta`) �
 | `POST /api/queues/{id}/join` | Any authenticated user. |
 | `POST /api/queues/{id}/leave` | Any authenticated user. |
 | `POST /api/queues/{id}/next` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
+| `PATCH /api/queues/{id}/state` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
+| `POST /api/queues/{id}/announcement` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
+| `POST /api/office-hours` | **`role: ta`** (`403` for students). |
+| `PUT /api/office-hours/{id}` | **`role: ta`** and must own the row (`403` otherwise). |
+| `DELETE /api/office-hours/{id}` | **`role: ta`** and must own the row (`403` otherwise). |
 
-All other routes listed below do **not** require a token.
+**Public (no token):** **`GET /api/office-hours/ta/{ta_id}`**, **`GET /api/office-hours/course/{course_id}`**, and queue read/SSE routes such as **`GET /api/queues/{id}`**, **`GET /api/queues/active`**, **`GET /api/queues/{id}/events`**.
 
 ### Endpoints
 
@@ -190,8 +268,10 @@ Path parameter **`{id}`** is the numeric queue id (`chi` route `/api/queues/{id}
 | `POST` | `/api/queues/{id}/join` | Authenticated user joins | **`201`** `{ id, queue_id, position, joined_at }`. Queue must exist and **`status`** must be **`open`**. Duplicate student in same queue → **`409`**. Triggers SSE (below) |
 | `POST` | `/api/queues/{id}/leave` | Authenticated user leaves | **`204`** empty body; positions renumbered. **`404`** if no row was removed (`not in queue`) |
 | `POST` | `/api/queues/{id}/next` | Owning TA removes front of line | **`200`** `{ "queue_id", "status": "in_session", "student": { …entry } }`. **`404`** no queue or empty queue · **`409`** queue not **`open`**. Triggers SSE |
+| `PATCH` | `/api/queues/{id}/state` | Owning TA sets `open` / `paused` / `closed` | **`200`** `{ id, status }`. Emits **`QUEUE_STATE_CHANGED`** on SSE |
+| `POST` | `/api/queues/{id}/announcement` | Owning TA posts `{ "message": "..." }` (stored + SSE) | **`201 Created`** body includes `id`, `queue_id`, `message`, `created_at`. **`403`** wrong role or non-owner TA |
 
-**Queue `status` in the database** can be `open`, `paused`, or `closed` (`migrate.go`). **Current API behavior:** **`POST /api/queues`** only creates **`open`** queues; **join** and **next** require **`open`**. There is no HTTP route in this repo to set `paused` / `closed` yet.
+**Queue `status` in the database** can be `open`, `paused`, or `closed` (`migrate.go`). **`POST /api/queues`** creates **`open`** queues; **join** and **next** require **`open`** (join returns **409** when paused or closed). The owning TA can change status via **`PATCH /api/queues/{id}/state`** with JSON `{"status":"open"|"paused"|"closed"}` (see queue handler tests above).
 
 ### Real-time updates (SSE)
 
@@ -201,11 +281,11 @@ Path parameter **`{id}`** is the numeric queue id (`chi` route `/api/queues/{id}
 2. First line is a comment: `: connected` (keeps the stream open).
 3. Later lines look like: `event: <TYPE>` then `data: <JSON>` (blank line between events).
 
-The **`data`** line is **only** the JSON for the event **`payload`** field (see `StreamQueueEvents` in `backend/internal/queue/events.go`). **`QUEUE_UPDATED`** is sent with **no payload** ⇒ **`data: null`**.
+The **`data`** line is JSON for the **full queue event** (`type`, `queue_id`, optional `payload`) — see `StreamQueueEvents` in `backend/internal/queue/events.go`. Events with no extra fields omit `payload` in JSON.
 
-**`event` names:** `STUDENT_JOINED` · `STUDENT_LEFT` · `STUDENT_SERVED` · `QUEUE_UPDATED`.
+**`event` names (non-exhaustive):** `STUDENT_JOINED` · `STUDENT_LEFT` · `STUDENT_SERVED` · `STUDENT_UP_NEXT` · `ANNOUNCEMENT_SENT` · `QUEUE_UPDATED` · `QUEUE_STATE_CHANGED`.
 
-Join / leave / **next** each publish the corresponding events after the database change succeeds.
+Join / leave / **next** / queue state changes / announcements publish the corresponding events after the database change succeeds (where applicable).
 
 ### Example: register and login (curl)
 
