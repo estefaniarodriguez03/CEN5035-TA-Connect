@@ -314,6 +314,7 @@ export default function TADashboard() {
     }
     try {
       await postQueueAnnouncement(activeQueueID, message);
+      toast.success('Announcement sent!', { description: message });
       setAnnouncementText('');
       setShowAnnouncementModal(false);
     } catch (error) {

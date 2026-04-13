@@ -1388,12 +1388,14 @@ body {
 }
 
 .ta-dashboard-root {
-  width: 1352px;
+  width: 100%;
   display: block;
 }
 
 .live-queue-dashboard-content {
   align-items: stretch;
+  max-width: 1600px;
+  margin: 0 auto;
 }
 
 .live-queue-dashboard-content .sidebar {
