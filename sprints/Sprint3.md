@@ -17,11 +17,11 @@
 * Implemented Prevent Join When Paused/Closed
 * Implementd Update Queue State API
 * Added Status Field to Queue Model
+* Created OfficeHour Model & Migration
 * Implemented Fetch Office Hours by Course
 * Implemented Fetch Office Hours by TA
 * Implemented Update Office Hour API
 * Implemented Create Office Hour API
-* Created OfficeHour Model & Migration
 
 ## List Frontend Unit Tests
 ### Cypress
