@@ -1,5 +1,6 @@
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
@@ -35,6 +36,7 @@ interface CourseOption {
 
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [selectedCourse, setSelectedCourse] = useState(
     "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
   );
@@ -394,7 +396,7 @@ export default function StudentDashboard() {
           </div>
           <div className="nav-tabs">
             <button className="nav-tab active">Dashboard</button>
-            <button className="nav-tab">My Courses</button>
+            <button className="nav-tab" onClick={() => navigate("/student/my-courses")}>My Courses</button>
             <button className="nav-tab">My Queue Status</button>
           </div>
         </div>
@@ -546,12 +548,12 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            <div className="queue-notification">
+            <div className={`queue-notification ${studentPosition === 1 ? "next-in-line" : ""}`}>
               <div className="notification-icon-circle">
                 <span className="notification-icon-text">ⓘ</span>
               </div>
               <div className="notification-text">
-                <strong>You'll receive a notification when you're next in line.</strong>
+                <strong>{studentPosition === 1 ? "Be ready! You're next in line." : "You'll receive a notification when you're next in line."}</strong>
                 <div className="notification-subtext">Make sure to stay nearby and keep notifications enabled.</div>
               </div>
             </div>
