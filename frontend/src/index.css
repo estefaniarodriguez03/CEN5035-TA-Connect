@@ -178,6 +178,7 @@ body {
 
 .ta-dashboard {
   min-height: 100vh;
+  width: 100%;
   background-color: #f5f7fa;
   font-family: 'IBM Plex Sans', sans-serif;
 }
@@ -1387,7 +1388,7 @@ body {
 }
 
 .ta-dashboard-root {
-  width: 100%;
+  width: 1352px;
   display: block;
 }
 
@@ -1708,7 +1709,6 @@ body {
   min-height: 120px;
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 0.95rem;
-  color: var(--cool-grey-11);
   resize: vertical;
   box-sizing: border-box;
 }
@@ -2440,4 +2440,197 @@ body {
   .today-view-section {
     padding: 1rem;
   }
+}
+/* ─── My Office Hours Page ─────────────────────────────────────────────── */
+
+.oh-page {
+  width: 100%;
+  padding: 2rem;
+}
+
+.oh-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: #000000;
+}
+
+/* Shrink the title slightly — welcome-title is 1.5rem which fits well here */
+.oh-page-title {
+  margin-bottom: 0.25rem;
+}
+
+.oh-page-subtitle {
+  color: var(--cool-grey-11);
+  font-size: 0.95rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+/* Keep the Add button the same width as its content instead of full-width */
+.oh-add-btn {
+  width: auto;
+  padding: 0.875rem 1.75rem;
+  font-size: 1rem;
+}
+
+/* One card per day stacked vertically */
+.oh-schedule-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.oh-day-card {
+  border: 2px solid var(--core-blue);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--white);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Solid blue header strip — consistent with sidebar-content gradient */
+.oh-day-header {
+  background: linear-gradient(135deg, var(--core-blue) 0%, var(--dark-blue) 100%);
+  padding: 0.6rem 1.5rem;
+}
+
+.oh-day-heading {
+  color: var(--white);
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.oh-day-body {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.oh-empty-day {
+  color: var(--cool-grey-3);
+  text-align: center;
+  padding: 1.5rem 0;
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+/* Individual schedule entry inside a day — layered on top of office-hour-card */
+.oh-schedule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: box-shadow 0.15s;
+}
+
+.oh-schedule-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 33, 165, 0.12);
+}
+
+.oh-schedule-info {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Time row reuses .office-hour-time colour (core-blue) */
+.oh-time-row {
+  margin-bottom: 0.25rem;
+}
+
+.oh-time-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+/* Course label — override text-align:center from office-hour-course */
+.oh-course-label {
+  text-align: left;
+  margin-bottom: 0;
+  margin-left: 0;
+}
+
+.oh-recurring-badge {
+  display: inline-block;
+  margin-top: 0.4rem;
+  padding: 2px 8px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 4px;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+/* Stop actions from stretching full width inside the card */
+.oh-item-actions {
+  width: auto;
+  flex-shrink: 0;
+}
+
+/* ─── Office Hours Modal form fields ───────────────────────────────────── */
+
+.oh-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.oh-modal-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.oh-modal-input {
+  width: 100%;
+  border: 1px solid var(--cool-grey-3);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background: var(--white);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.oh-modal-input:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 2px rgba(0, 33, 165, 0.15);
+}
+
+.oh-modal-time-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.oh-modal-recurring-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.oh-location-label {
+  font-size: 0.8rem;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin-top: 0.2rem;
+}
+
+.oh-modal-optional {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--cool-grey-11);
+  opacity: 0.7;
 }
