@@ -56,6 +56,7 @@ vi.mock('../api/queue', () => ({
   getActiveQueueForOfficeHour: vi.fn(),
   joinQueue: vi.fn(),
   leaveQueue: vi.fn(),
+  postQueueAnnouncement: vi.fn(),
 }));
 
 vi.mock('../images/UF Logo.png', () => ({ default: 'mock-image.png' }));
@@ -94,6 +95,7 @@ import {
   getActiveQueueForOfficeHour,
   joinQueue,
   leaveQueue,
+  postQueueAnnouncement,
 } from '../api/queue';
 import MyOfficeHoursPage from './MyOfficeHoursPage';
 import {
@@ -169,6 +171,7 @@ vi.mocked(updateOfficeHour).mockResolvedValue({
   location: 'CSE E222',
 });
 vi.mocked(deleteOfficeHour).mockResolvedValue();
+vi.mocked(postQueueAnnouncement).mockResolvedValue(undefined);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -481,23 +484,28 @@ describe('TADashboard page', () => {
     expect(updateQueueState).toHaveBeenCalledWith(10, 'closed');
   });
 
-  it('opens announcement modal from dashboard and sends announcement', async () => {
-    render(<TADashboard />);
-    fireEvent.click(screen.getByText('Send Announcement'));
-    expect(screen.getByPlaceholderText(/Running 10 minutes late/i)).toBeInTheDocument();
+it('opens announcement modal from dashboard and sends announcement', async () => {
+  render(<TADashboard />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Running 10 minutes late/i), {
-      target: { value: 'Office hours extended by 30 minutes!' },
-    });
-    fireEvent.click(screen.getByText('Send to All'));
+  fireEvent.click(screen.getAllByText('11:00 AM - 1:00 PM')[0]);
+  fireEvent.click(screen.getByRole('button', { name: /Start Office Hours Live Queue/i }));
+  await screen.findByText('Live Queue');
 
-    await waitFor(() => {
-      expect(hoisted.toast.success).toHaveBeenCalledWith('Announcement sent!', {
-        description: 'Office hours extended by 30 minutes!',
-      });
-    });
-    expect(screen.queryByPlaceholderText(/Running 10 minutes late/i)).not.toBeInTheDocument();
+  fireEvent.click(screen.getAllByText('Send Announcement')[0]);
+  expect(screen.getByPlaceholderText(/Running 10 minutes late/i)).toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText(/Running 10 minutes late/i), {
+    target: { value: 'Office hours extended by 30 minutes!' },
   });
+  fireEvent.click(screen.getByText('Send to All'));
+
+  await waitFor(() => {
+    expect(hoisted.toast.success).toHaveBeenLastCalledWith('Announcement sent!', {
+      description: 'Office hours extended by 30 minutes!',
+    });
+  });
+  expect(screen.queryByPlaceholderText(/Running 10 minutes late/i)).not.toBeInTheDocument();
+});
 
   it('calls next endpoint when starting session on first queued student', async () => {
     vi.mocked(getQueueOrNull).mockResolvedValue({
