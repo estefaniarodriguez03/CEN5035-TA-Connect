@@ -56,7 +56,6 @@ export default function MyCoursesPage() {
     { id: 10, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", day: "Thursday", time: "10:00 AM - 12:00 PM", color: "green", timeStart: "10:00", timeEnd: "12:00" },
     { id: 11, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", day: "Thursday", time: "1:00 PM - 3:00 PM", color: "yellow", timeStart: "13:00", timeEnd: "15:00" },
     { id: 12, courseCode: "COP4600", courseName: "Operating Systems", taName: "John Spurrier", day: "Thursday", time: "3:00 PM - 5:00 PM", color: "red", timeStart: "15:00", timeEnd: "17:00" },
-    
     { id: 13, courseCode: "COP3530", courseName: "Data Structures", taName: "Sara Waters", day: "Friday", time: "9:00 AM - 11:00 AM", color: "purple", timeStart: "09:00", timeEnd: "11:00" },
     { id: 14, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", day: "Friday", time: "11:00 AM - 1:00 PM", color: "green", timeStart: "11:00", timeEnd: "13:00" },
     { id: 15, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", day: "Friday", time: "2:00 PM - 4:00 PM", color: "yellow", timeStart: "14:00", timeEnd: "16:00" },
@@ -75,11 +74,9 @@ export default function MyCoursesPage() {
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-  // Get unique courses and TAs for filter dropdowns
   const uniqueCourses = Array.from(new Set(allOfficeHours.map(oh => `${oh.courseCode} - ${oh.courseName}`)));
   const uniqueTAs = Array.from(new Set(allOfficeHours.map(oh => oh.taName)));
 
-  // Filter office hours based on selected filters
   const filteredOfficeHours = useMemo(() => {
     return allOfficeHours.filter(oh => {
       const courseMatch = filterCourse === "all" || `${oh.courseCode} - ${oh.courseName}` === filterCourse;
@@ -88,7 +85,6 @@ export default function MyCoursesPage() {
     });
   }, [allOfficeHours, filterCourse, filterTA]);
 
-  // Filter today's office hours based on selected filters
   const filteredTodayOfficeHours = useMemo(() => {
     return todayOfficeHours.filter(oh => {
       const courseMatch = filterCourse === "all" || `${oh.courseCode} - ${oh.courseName}` === filterCourse;
@@ -188,7 +184,6 @@ export default function MyCoursesPage() {
 
     const newId = Math.max(...allOfficeHours.map(oh => oh.id), ...todayOfficeHours.map(oh => oh.id)) + 1;
 
-    // Add to weekly view
     const newWeeklyEntry: CourseOfficeHour = {
       id: newId,
       courseCode,
@@ -203,7 +198,6 @@ export default function MyCoursesPage() {
 
     setAllOfficeHours([...allOfficeHours, newWeeklyEntry]);
 
-    // Check if the day is today
     const today = new Date();
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const todayName = dayNames[today.getDay()];
@@ -222,7 +216,6 @@ export default function MyCoursesPage() {
       setTodayOfficeHours([...todayOfficeHours, newTodayEntry]);
     }
 
-    // Reset and close modal
     setModalCourse("");
     setModalDay("Monday");
     setModalStartTime("09");
@@ -233,10 +226,8 @@ export default function MyCoursesPage() {
   };
 
   const handleDeleteOfficeHours = (id: number) => {
-    // Remove from weekly view
     setAllOfficeHours(allOfficeHours.filter(oh => oh.id !== id));
     
-    // In today view, update to "No office hours today" instead of removing
     setTodayOfficeHours(todayOfficeHours.map(oh => 
       oh.id === id 
         ? { ...oh, time: "No office hours today", timeStart: "", timeEnd: "" }

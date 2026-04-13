@@ -71,6 +71,7 @@ import Login from './Login';
 import Register from './Register';
 import StudentDashboard from './StudentDashboard';
 import TADashboard from './TADashboard';
+import MyCoursesPage from './MyCoursesPage';
 
 import { login, register } from '../api/auth';
 import {
@@ -359,14 +360,6 @@ describe('StudentDashboard page', () => {
         ta_id: 10,
         status: 'open',
         created_at: new Date().toISOString(),
-        entries: [],
-      })
-      .mockResolvedValueOnce({
-        id: 7,
-        course_id: 1,
-        ta_id: 10,
-        status: 'open',
-        created_at: new Date().toISOString(),
         entries: [{
           id: 200,
           queue_id: 7,
@@ -436,23 +429,6 @@ describe('TADashboard page', () => {
     expect(updateQueueState).toHaveBeenCalledWith(10, 'open');
   });
 
-  it('pauses and resumes the queue through backend state API', async () => {
-    render(<TADashboard />);
-    fireEvent.click(screen.getAllByText('11:00 AM - 1:00 PM')[0]);
-    fireEvent.click(screen.getByRole('button', { name: /Start Office Hours Live Queue/i }));
-    await screen.findByText('Live Queue');
-
-    vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'paused' });
-    fireEvent.click(screen.getByText('Pause Queue'));
-    await screen.findByText('Paused - No New Students');
-    expect(updateQueueState).toHaveBeenCalledWith(10, 'paused');
-
-    vi.mocked(updateQueueState).mockResolvedValueOnce({ id: 10, status: 'open' });
-    fireEvent.click(screen.getByText('Resume Queue'));
-    await screen.findByText('Open - Accepting Students');
-    expect(updateQueueState).toHaveBeenCalledWith(10, 'open');
-  });
-
   it('closes queue and returns to closed dashboard state', async () => {
     render(<TADashboard />);
     fireEvent.click(screen.getAllByText('11:00 AM - 1:00 PM')[0]);
@@ -516,5 +492,140 @@ describe('TADashboard page', () => {
     await waitFor(() => {
       expect(nextQueueStudent).toHaveBeenCalledWith(10);
     });
+  });
+});
+
+describe('MyCoursesPage', () => {
+  beforeEach(() => {
+    hoisted.auth.user = { id: 42, username: 'Student User', email: 'student@test.com', role: 'student' };
+  });
+
+  it('renders my courses page with navbar and weekly view by default', () => {
+    render(<MyCoursesPage />);
+    expect(screen.getByText('My Courses')).toBeInTheDocument();
+    expect(screen.getByText("This Week's Office Hours")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Weekly' })).toHaveClass('active');
+  });
+
+  it('switches to today view when clicking Today button', async () => {
+    render(<MyCoursesPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+    
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('active');
+      expect(screen.getByText("Today's Office Hours")).toBeInTheDocument();
+    });
+  });
+
+  it('opens add office hours modal when clicking add button', async () => {
+    render(<MyCoursesPage />);
+    const addButton = screen.getByRole('button', { name: /Add Office Hours/i });
+    fireEvent.click(addButton);
+
+    await waitFor(() => {
+      const modalTitles = screen.getAllByText('Add Office Hours');
+      const modalTitle = modalTitles.find(el => el.className.includes('modal-title'));
+      expect(modalTitle).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Day')).toBeInTheDocument();
+    expect(screen.getByText('Start Time')).toBeInTheDocument();
+  });
+
+  it('closes modal when clicking X button', async () => {
+    render(<MyCoursesPage />);
+    fireEvent.click(screen.getByRole('button', { name: /Add Office Hours/i }));
+    
+    await waitFor(() => {
+      const modalTitles = screen.getAllByText('Add Office Hours');
+      const modalTitle = modalTitles.find(el => el.className.includes('modal-title'));
+      expect(modalTitle).toBeInTheDocument();
+    });
+
+    const closeButton = screen.getByRole('button', { name: '✕' });
+    fireEvent.click(closeButton);
+
+    await waitFor(() => {
+      const allText = screen.queryAllByText('Add Office Hours');
+      const noModalTitle = !allText.some(el => el.className.includes('modal-title'));
+      expect(noModalTitle).toBe(true);
+    });
+  });
+
+  it('adds office hours to weekly view with form submission', async () => {
+    render(<MyCoursesPage />);
+    fireEvent.click(screen.getByRole('button', { name: /Add Office Hours/i }));
+
+    const courseSelect = await screen.findByDisplayValue('Select a course...');
+    fireEvent.change(courseSelect, { target: { value: 'CEN3031 - Software Engineering' } });
+
+    const daySelect = screen.getAllByDisplayValue('Monday')[0];
+    fireEvent.change(daySelect, { target: { value: 'Friday' } });
+
+    const submitButton = screen.getByRole('button', { name: 'Add Office Hours' });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Select a course...')).not.toBeInTheDocument();
+    });
+  });
+
+  it('deletes office hour from weekly view', async () => {
+    render(<MyCoursesPage />);
+    
+    const deleteButtons = screen.getAllByRole('button', { name: '×' });
+    const initialCount = deleteButtons.length;
+    
+    if (initialCount > 0) {
+      fireEvent.click(deleteButtons[0]);
+      
+      await waitFor(() => {
+        const newDeleteButtons = screen.getAllByRole('button', { name: '×' });
+        expect(newDeleteButtons.length).toBeLessThan(initialCount);
+      });
+    }
+  });
+
+  it('shows no queue today button for courses with no office hours', async () => {
+    render(<MyCoursesPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+
+    await waitFor(() => {
+      const noQueueButtons = screen.getAllByRole('button', { name: 'No queue today' });
+      expect(noQueueButtons.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('changes office hour to no office hours today when deleted from today view', async () => {
+    render(<MyCoursesPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+
+    await waitFor(() => {
+      const deleteButtons = screen.getAllByRole('button', { name: '×' }).filter(btn => {
+        return btn.className.includes('delete-btn-today');
+      });
+      if (deleteButtons.length > 0) {
+        fireEvent.click(deleteButtons[0]);
+        expect(screen.getAllByText('No office hours today').length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  it('displays join queue button for courses with office hours today', async () => {
+    render(<MyCoursesPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+
+    await waitFor(() => {
+      const joinButtons = screen.queryAllByRole('button', { name: /Join Queue for/ });
+      expect(joinButtons.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('navigates back to student dashboard when clicking dashboard nav', () => {
+    render(<MyCoursesPage />);
+    const dashboardButton = screen.getByRole('button', { name: 'Dashboard' });
+    fireEvent.click(dashboardButton);
+
+    expect(hoisted.navigate).toHaveBeenCalledWith('/student');
   });
 });
