@@ -1,8 +1,10 @@
 # TA Connect Sprint 3
 
 ## Video Link
-* **Front-End:** ...
+* **Front-End:** https://youtu.be/3amphGm6wt8
 * **Back-End:** https://youtu.be/50ld7DyK2hM
+
+**Frontend + Backend connection shown in Frontend video!!**
 
 ## Detail Work Completed in Sprint 3
 ### Front-End
