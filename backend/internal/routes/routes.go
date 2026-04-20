@@ -21,29 +21,43 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 
+	// --- Public routes (no auth) ---
 	r.Get("/health", healthHandler(db))
 	r.Post("/api/login", auth.Login(db))
 	r.Post("/api/register", auth.Register(db))
 
 	r.Get("/api/office-hours/ta/{ta_id}", officehour.ListByTA(db))
 	r.Get("/api/office-hours/course/{course_id}", officehour.ListByCourse(db))
-	r.Post("/api/office-hours", officehour.Create(db))
-	r.Route("/api/office-hours/{id}", func(r chi.Router) {
-		r.Put("/", officehour.Update(db))
-		r.Delete("/", officehour.Delete(db))
+
+	r.Get("/api/queues/active", queue.GetActiveQueueByCourse(db))
+
+	// SSE is public so unauthenticated browsers can subscribe.
+	r.Get("/api/queues/{id}/events", queue.StreamQueueEvents(queue.DefaultHub))
+	r.Get("/api/queues/{id}", queue.GetQueue(db))
+
+	// --- TA-only routes ---
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRole("ta"))
+
+		r.Post("/api/office-hours", officehour.Create(db))
+		r.Put("/api/office-hours/{id}", officehour.Update(db))
+		r.Delete("/api/office-hours/{id}", officehour.Delete(db))
+
+		r.Post("/api/queues", queue.CreateQueue(db))
+		r.Patch("/api/queues/{id}/state", queue.UpdateQueueState(db))
+		r.Post("/api/queues/{id}/status", queue.UpdateStatus(db))
+		r.Post("/api/queues/{id}/next", queue.Next(db))
+		r.Post("/api/queues/{id}/announcement", queue.PostAnnouncement(db))
 	})
 
-	r.Post("/api/queues", queue.CreateQueue(db))
-	r.Get("/api/queues/active", queue.GetActiveQueueByCourse(db))
-	r.Route("/api/queues/{id}", func(r chi.Router) {
-		r.Get("/", queue.GetQueue(db))
-		r.Patch("/state", queue.UpdateQueueState(db))
-		r.Post("/status", queue.UpdateStatus(db))
-		r.Post("/next", queue.Next(db))
-		r.Post("/join", queue.Join(db))
-		r.Post("/leave", queue.Leave(db))
-		r.Post("/announcement", queue.PostAnnouncement(db))
-		r.Get("/events", queue.StreamQueueEvents(queue.DefaultHub))
+	// --- Student-only routes ---
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRole("student"))
+
+		r.Post("/api/queues/{id}/join", queue.Join(db))
+		r.Post("/api/queues/{id}/leave", queue.Leave(db))
 	})
 
 	return r
