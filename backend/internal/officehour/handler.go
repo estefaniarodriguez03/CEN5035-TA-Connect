@@ -24,22 +24,10 @@ type CreateOfficeHourRequest struct {
 }
 
 // Create handles POST /api/office-hours. TA-only; rejects overlapping slots for the same TA and day.
+// Auth and role=ta enforced by middleware.
 func Create(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can create office hours"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		var req CreateOfficeHourRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -111,22 +99,10 @@ func Create(db *sql.DB) http.HandlerFunc {
 }
 
 // Update handles PUT /api/office-hours/{id}. TA-only; owning TA only; rejects overlaps with other slots on the same day.
+// Auth and role=ta enforced by middleware.
 func Update(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can update office hours"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		id, err := parseOfficeHourID(r)
 		if err != nil {
@@ -145,7 +121,10 @@ func Update(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		if ownerID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can update this office hour"})
+			writeJSON(w, http.StatusForbidden, auth.ForbiddenResponse{
+				Error: "only the owning TA can update this office hour",
+				Code:  "not_resource_owner",
+			})
 			return
 		}
 
@@ -224,22 +203,10 @@ func Update(db *sql.DB) http.HandlerFunc {
 }
 
 // Delete handles DELETE /api/office-hours/{id}. TA-only; owning TA only.
+// Auth and role=ta enforced by middleware.
 func Delete(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can delete office hours"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		id, err := parseOfficeHourID(r)
 		if err != nil {
@@ -258,7 +225,10 @@ func Delete(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		if ownerID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can delete this office hour"})
+			writeJSON(w, http.StatusForbidden, auth.ForbiddenResponse{
+				Error: "only the owning TA can delete this office hour",
+				Code:  "not_resource_owner",
+			})
 			return
 		}
 
@@ -280,11 +250,6 @@ func Delete(db *sql.DB) http.HandlerFunc {
 // ListByTA handles GET /api/office-hours/ta/{ta_id}. Public; returns all office hours for that TA, ordered by day then start time.
 func ListByTA(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
 		s := chi.URLParam(r, "ta_id")
 		if s == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ta id"})
@@ -334,11 +299,6 @@ func ListByTA(db *sql.DB) http.HandlerFunc {
 // ListByCourse handles GET /api/office-hours/course/{course_id}. Public; returns all office hours for that course, ordered by day, start time, then TA.
 func ListByCourse(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
 		s := chi.URLParam(r, "course_id")
 		if s == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
