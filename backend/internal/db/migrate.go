@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS queue_announcements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_announcements_queue_created ON queue_announcements(queue_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS session_logs (
+	id SERIAL PRIMARY KEY,
+	student_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	ta_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	start_time TIMESTAMPTZ NOT NULL,
+	end_time TIMESTAMPTZ NOT NULL,
+	duration_seconds DOUBLE PRECISION NOT NULL,
+	CHECK (end_time >= start_time),
+	CHECK (duration_seconds >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_logs_ta_id ON session_logs(ta_id);
+CREATE INDEX IF NOT EXISTS idx_session_logs_student_id ON session_logs(student_id);
+CREATE INDEX IF NOT EXISTS idx_session_logs_start_time ON session_logs(start_time DESC);
 `
 	_, err := db.Exec(createQuery)
 	if err != nil {
