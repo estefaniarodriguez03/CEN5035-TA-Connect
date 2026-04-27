@@ -350,9 +350,10 @@ func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
 		t.Fatalf("get queue: %d %s", rr.Code, rr.Body.String())
 	}
 	var getResp struct {
-		AverageSession       float64 `json:"average_session_duration_seconds"`
-		EstimatedMax         int64   `json:"estimated_wait_time_seconds"`
-		Entries              []struct {
+		AverageSession   float64 `json:"average_session_duration_seconds"`
+		TAAverageSession float64 `json:"ta_average_session_duration_seconds"`
+		EstimatedMax     int64   `json:"estimated_wait_time_seconds"`
+		Entries          []struct {
 			Position             int   `json:"position"`
 			EstimatedWaitSeconds int64 `json:"estimated_wait_seconds"`
 		} `json:"entries"`
@@ -362,6 +363,9 @@ func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
 	}
 	if getResp.AverageSession != 0 {
 		t.Fatalf("no samples yet: avg should be 0, got %v", getResp.AverageSession)
+	}
+	if getResp.TAAverageSession != 0 {
+		t.Fatalf("no TA samples yet: ta avg should be 0, got %v", getResp.TAAverageSession)
 	}
 	if len(getResp.Entries) != 1 {
 		t.Fatalf("entries: %d", len(getResp.Entries))

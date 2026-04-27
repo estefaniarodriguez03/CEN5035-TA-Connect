@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
 	email TEXT NOT NULL UNIQUE,
 	password TEXT NOT NULL,
 	classcode TEXT[] NOT NULL DEFAULT '{}',
-	role TEXT NOT NULL
+	role TEXT NOT NULL,
+	average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+	session_sample_count INT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS queues (
@@ -66,6 +68,8 @@ CREATE INDEX IF NOT EXISTS idx_queue_announcements_queue_created ON queue_announ
 	}
 	// Idempotent column adds for existing deployments created before these fields.
 	const alter = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS last_served_at TIMESTAMPTZ;

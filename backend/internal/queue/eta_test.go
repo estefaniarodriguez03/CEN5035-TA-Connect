@@ -28,3 +28,16 @@ func TestEstimateMaxWaitSecondsForQueue(t *testing.T) {
 		t.Errorf("last of 3: got %d want 120", g)
 	}
 }
+
+func TestPickAverageForETA(t *testing.T) {
+	t.Parallel()
+	if g := PickAverageForETA(10, 1, 99, 5); g != 10 {
+		t.Errorf("prefer queue: got %v", g)
+	}
+	if g := PickAverageForETA(0, 0, 88, 3); g != 88 {
+		t.Errorf("fallback TA: got %v", g)
+	}
+	if g := PickAverageForETA(0, 0, 0, 0); g != 0 {
+		t.Errorf("no data: got %v", g)
+	}
+}

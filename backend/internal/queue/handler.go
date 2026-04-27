@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"backend/internal/auth"
 
@@ -233,10 +234,11 @@ func Next(db *sql.DB) http.HandlerFunc {
 		// Lock the queue row so status/ownership cannot change mid-operation.
 		var status string
 		var taID int
+		var lastServed sql.NullTime
 		err = tx.QueryRowContext(ctx,
-			`SELECT ta_id, status FROM queues WHERE id = $1 FOR UPDATE`,
+			`SELECT ta_id, status, last_served_at FROM queues WHERE id = $1 FOR UPDATE`,
 			queueID,
-		).Scan(&taID, &status)
+		).Scan(&taID, &status, &lastServed)
 		if err == sql.ErrNoRows {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
 			return
@@ -297,7 +299,15 @@ func Next(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Record time between consecutive /next calls as a completed help session for rolling average duration.
+		var haveSessionDuration bool
+		var sessionDurationSec float64
+		if lastServed.Valid {
+			haveSessionDuration = true
+			sessionDurationSec = time.Since(lastServed.Time).Seconds()
+		}
+
+		// Record time between consecutive /next calls as a completed help session for rolling average duration
+		// (per queue and per owning TA).
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE queues SET
 				last_served_at = NOW(),
@@ -311,6 +321,26 @@ func Next(db *sql.DB) http.HandlerFunc {
 		`, queueID); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
 			return
+		}
+
+		if haveSessionDuration {
+			var ulock int
+			if err := tx.QueryRowContext(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, taID).Scan(&ulock); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				return
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE users SET
+					session_sample_count = session_sample_count + 1,
+					average_session_duration_seconds = CASE
+						WHEN session_sample_count = 0 THEN $2
+						ELSE (average_session_duration_seconds * session_sample_count + $2) / (session_sample_count + 1)
+					END
+				WHERE id = $1
+			`, taID, sessionDurationSec); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				return
+			}
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -523,10 +553,16 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 
 		var id, courseID, taID int
 		var status, createdAt string
-		var avgSession float64
-		err = db.QueryRowContext(r.Context(),
-			`SELECT id, course_id, ta_id, status, created_at::text, average_session_duration_seconds FROM queues WHERE id = $1`,
-			queueID).Scan(&id, &courseID, &taID, &status, &createdAt, &avgSession)
+		var qAvg, taAvg float64
+		var qN, taN int
+		err = db.QueryRowContext(r.Context(), `
+			SELECT q.id, q.course_id, q.ta_id, q.status, q.created_at::text,
+				q.average_session_duration_seconds, q.session_sample_count,
+				u.average_session_duration_seconds, u.session_sample_count
+			FROM queues q
+			JOIN users u ON u.id = q.ta_id
+			WHERE q.id = $1
+		`, queueID).Scan(&id, &courseID, &taID, &status, &createdAt, &qAvg, &qN, &taAvg, &taN)
 		if err == sql.ErrNoRows {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
 			return
@@ -567,7 +603,7 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(queueStateJSON(id, courseID, taID, status, createdAt, entries, avgSession))
+		_ = json.NewEncoder(w).Encode(queueStateJSON(id, courseID, taID, status, createdAt, entries, qAvg, qN, taAvg, taN))
 	}
 }
 
@@ -581,16 +617,20 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var id, taID int
+		var id, qCourseID, taID int
 		var status, createdAt string
-		var avgSession float64
+		var qAvg, taAvg float64
+		var qN, taN int
 		err = db.QueryRowContext(r.Context(), `
-			SELECT id, ta_id, status, created_at::text, average_session_duration_seconds
-			FROM queues
-			WHERE course_id = $1 AND status = 'open'
-			ORDER BY created_at DESC
+			SELECT q.id, q.course_id, q.ta_id, q.status, q.created_at::text,
+				q.average_session_duration_seconds, q.session_sample_count,
+				u.average_session_duration_seconds, u.session_sample_count
+			FROM queues q
+			JOIN users u ON u.id = q.ta_id
+			WHERE q.course_id = $1 AND q.status = 'open'
+			ORDER BY q.created_at DESC
 			LIMIT 1
-		`, courseID).Scan(&id, &taID, &status, &createdAt, &avgSession)
+		`, courseID).Scan(&id, &qCourseID, &taID, &status, &createdAt, &qAvg, &qN, &taAvg, &taN)
 		if err == sql.ErrNoRows {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active queue for course"})
 			return
@@ -628,7 +668,7 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 			entries = []Entry{}
 		}
 
-		writeJSON(w, http.StatusOK, queueStateJSON(id, courseID, taID, status, createdAt, entries, avgSession))
+		writeJSON(w, http.StatusOK, queueStateJSON(id, qCourseID, taID, status, createdAt, entries, qAvg, qN, taAvg, taN))
 	}
 }
 
