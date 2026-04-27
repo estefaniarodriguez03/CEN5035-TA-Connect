@@ -458,9 +458,30 @@ func updateQueueState(db *sql.DB, allowedMethod string) http.HandlerFunc {
 			return
 		}
 
-		if _, err := db.ExecContext(r.Context(), `UPDATE queues SET status = $2 WHERE id = $1`, queueID, string(newStatus)); err != nil {
-			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
-			return
+		ctx := r.Context()
+		if newStatus == QueueStatusClosed {
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+			defer tx.Rollback()
+			if err := applyClosedQueueFinalization(ctx, tx, queueID, claims.UserID); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+		} else {
+			if _, err := db.ExecContext(ctx, `UPDATE queues SET status = $2 WHERE id = $1`, queueID, string(newStatus)); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+		}
+		if newStatus == QueueStatusClosed {
+			PublishUpNextForQueue(ctx, db, queueID)
 		}
 
 		if previous != string(newStatus) {
