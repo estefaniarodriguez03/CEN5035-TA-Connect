@@ -309,3 +309,68 @@ func TestQueueEdgeCases_DuplicateJoin_LeaveNotInQueue_NextEmpty(t *testing.T) {
 		t.Fatalf("next on empty: expected 404 got %d, body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+// GET /api/queues/{id} includes average session duration and per-entry / max ETA fields.
+func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_eta_%d", suffix),
+		"email":    fmt.Sprintf("ta_eta_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_eta_%d", suffix),
+		"email":    fmt.Sprintf("st_eta_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	st := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+	_ = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, st.Token)
+
+	rr = doJSON(t, ts, http.MethodGet, fmt.Sprintf("/api/queues/%d", q.ID), nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var getResp struct {
+		AverageSession       float64 `json:"average_session_duration_seconds"`
+		EstimatedMax         int64   `json:"estimated_wait_time_seconds"`
+		Entries              []struct {
+			Position             int   `json:"position"`
+			EstimatedWaitSeconds int64 `json:"estimated_wait_seconds"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&getResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if getResp.AverageSession != 0 {
+		t.Fatalf("no samples yet: avg should be 0, got %v", getResp.AverageSession)
+	}
+	if len(getResp.Entries) != 1 {
+		t.Fatalf("entries: %d", len(getResp.Entries))
+	}
+	// Avg 0 => ETA utility uses default 240s/position; first in line has 0s wait.
+	if getResp.Entries[0].EstimatedWaitSeconds != 0 {
+		t.Fatalf("pos 1 estimated_wait_seconds: %d", getResp.Entries[0].EstimatedWaitSeconds)
+	}
+	if getResp.EstimatedMax != 0 {
+		t.Fatalf("one student at front: max wait %d", getResp.EstimatedMax)
+	}
+}

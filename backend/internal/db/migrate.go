@@ -4,7 +4,7 @@ import "database/sql"
 
 // Migrate ensures required database tables exist.
 func Migrate(db *sql.DB) error {
-	const query = `
+	const createQuery = `
 CREATE TABLE IF NOT EXISTS users (
 	id SERIAL PRIMARY KEY,
 	username TEXT NOT NULL UNIQUE,
@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS queues (
 	course_id INT NOT NULL DEFAULT 0,
 	ta_id INT NOT NULL REFERENCES users(id),
 	status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paused', 'closed')),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+	session_sample_count INT NOT NULL DEFAULT 0,
+	last_served_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS queue_entries (
@@ -57,6 +60,16 @@ CREATE TABLE IF NOT EXISTS queue_announcements (
 
 CREATE INDEX IF NOT EXISTS idx_queue_announcements_queue_created ON queue_announcements(queue_id, created_at DESC);
 `
-	_, err := db.Exec(query)
+	_, err := db.Exec(createQuery)
+	if err != nil {
+		return err
+	}
+	// Idempotent column adds for existing deployments created before these fields.
+	const alter = `
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS last_served_at TIMESTAMPTZ;
+`
+	_, err = db.Exec(alter)
 	return err
 }

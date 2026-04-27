@@ -297,6 +297,22 @@ func Next(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		// Record time between consecutive /next calls as a completed help session for rolling average duration.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE queues SET
+				last_served_at = NOW(),
+				session_sample_count = session_sample_count + CASE WHEN last_served_at IS NULL THEN 0 ELSE 1 END,
+				average_session_duration_seconds = CASE
+					WHEN last_served_at IS NULL THEN average_session_duration_seconds
+					WHEN session_sample_count = 0 THEN EXTRACT(EPOCH FROM (NOW() - last_served_at))
+					ELSE (average_session_duration_seconds * session_sample_count + EXTRACT(EPOCH FROM (NOW() - last_served_at))) / (session_sample_count + 1)
+				END
+			WHERE id = $1
+		`, queueID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			return
+		}
+
 		if err := tx.Commit(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
 			return
@@ -487,12 +503,13 @@ func PostAnnouncement(db *sql.DB) http.HandlerFunc {
 
 // Entry is one queue entry for API response.
 type Entry struct {
-	ID        int    `json:"id"`
-	QueueID   int    `json:"queue_id"`
-	StudentID int    `json:"student_id"`
-	Position  int    `json:"position"`
-	JoinedAt  string `json:"joined_at"`
-	Username  string `json:"username,omitempty"`
+	ID                   int    `json:"id"`
+	QueueID              int    `json:"queue_id"`
+	StudentID            int    `json:"student_id"`
+	Position             int    `json:"position"`
+	JoinedAt             string `json:"joined_at"`
+	Username             string `json:"username,omitempty"`
+	EstimatedWaitSeconds int64  `json:"estimated_wait_seconds"`
 }
 
 // GetQueue handles GET /api/queues/{id}. Returns queue metadata (public).
@@ -506,9 +523,10 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 
 		var id, courseID, taID int
 		var status, createdAt string
+		var avgSession float64
 		err = db.QueryRowContext(r.Context(),
-			`SELECT id, course_id, ta_id, status, created_at::text FROM queues WHERE id = $1`,
-			queueID).Scan(&id, &courseID, &taID, &status, &createdAt)
+			`SELECT id, course_id, ta_id, status, created_at::text, average_session_duration_seconds FROM queues WHERE id = $1`,
+			queueID).Scan(&id, &courseID, &taID, &status, &createdAt, &avgSession)
 		if err == sql.ErrNoRows {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
 			return
@@ -549,14 +567,7 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id":         id,
-			"course_id":  courseID,
-			"ta_id":      taID,
-			"status":     status,
-			"created_at": createdAt,
-			"entries":    entries,
-		})
+		_ = json.NewEncoder(w).Encode(queueStateJSON(id, courseID, taID, status, createdAt, entries, avgSession))
 	}
 }
 
@@ -572,13 +583,14 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 
 		var id, taID int
 		var status, createdAt string
+		var avgSession float64
 		err = db.QueryRowContext(r.Context(), `
-			SELECT id, ta_id, status, created_at::text
+			SELECT id, ta_id, status, created_at::text, average_session_duration_seconds
 			FROM queues
 			WHERE course_id = $1 AND status = 'open'
 			ORDER BY created_at DESC
 			LIMIT 1
-		`, courseID).Scan(&id, &taID, &status, &createdAt)
+		`, courseID).Scan(&id, &taID, &status, &createdAt, &avgSession)
 		if err == sql.ErrNoRows {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active queue for course"})
 			return
@@ -616,14 +628,7 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 			entries = []Entry{}
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id":         id,
-			"course_id":  courseID,
-			"ta_id":      taID,
-			"status":     status,
-			"created_at": createdAt,
-			"entries":    entries,
-		})
+		writeJSON(w, http.StatusOK, queueStateJSON(id, courseID, taID, status, createdAt, entries, avgSession))
 	}
 }
 
