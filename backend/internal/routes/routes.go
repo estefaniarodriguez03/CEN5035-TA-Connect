@@ -8,6 +8,7 @@ import (
 	"backend/internal/httperr"
 	"backend/internal/officehour"
 	"backend/internal/queue"
+	"backend/internal/sessionlog"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -59,6 +60,12 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 
 		r.Post("/api/queues/{id}/join", queue.Join(db))
 		r.Post("/api/queues/{id}/leave", queue.Leave(db))
+	})
+
+	// --- Authenticated: TA and student (own session history) ---
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/api/session-history", sessionlog.ListHistory(db))
 	})
 
 	return r
