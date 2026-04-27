@@ -88,6 +88,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEF
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS last_served_at TIMESTAMPTZ;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS serving_student_id INT REFERENCES users(id) ON DELETE SET NULL;
 `
 	_, err = db.Exec(alter)
 	return err

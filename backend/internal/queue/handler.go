@@ -3,6 +3,7 @@ package queue
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"backend/internal/auth"
 	"backend/internal/httperr"
+	"backend/internal/sessionlog"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -236,10 +238,11 @@ func Next(db *sql.DB) http.HandlerFunc {
 		var status string
 		var taID int
 		var lastServed sql.NullTime
+		var prevServing sql.NullInt64
 		err = tx.QueryRowContext(ctx,
-			`SELECT ta_id, status, last_served_at FROM queues WHERE id = $1 FOR UPDATE`,
+			`SELECT ta_id, status, last_served_at, serving_student_id FROM queues WHERE id = $1 FOR UPDATE`,
 			queueID,
-		).Scan(&taID, &status, &lastServed)
+		).Scan(&taID, &status, &lastServed, &prevServing)
 		if err == sql.ErrNoRows {
 			httperr.Write(w, http.StatusNotFound, "queue_not_found", "queue not found", nil)
 			return
@@ -298,17 +301,28 @@ func Next(db *sql.DB) http.HandlerFunc {
 		}
 
 		var haveSessionDuration bool
+		var sessionEnd time.Time
 		var sessionDurationSec float64
 		if lastServed.Valid {
 			haveSessionDuration = true
-			sessionDurationSec = time.Since(lastServed.Time).Seconds()
+			sessionEnd = time.Now()
+			sessionDurationSec = sessionEnd.Sub(lastServed.Time).Seconds()
+		}
+
+		// Persist a completed help session: previous serving_student since last_served_at, ended now.
+		if lastServed.Valid && prevServing.Valid {
+			if err := sessionlog.InsertCompleted(ctx, tx, int(prevServing.Int64), taID, lastServed.Time, sessionEnd, sessionDurationSec); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
 		}
 
 		// Record time between consecutive /next calls as a completed help session for rolling average duration
-		// (per queue and per owning TA).
+		// (per queue and per owning TA). Track who is currently being helped for the next completion.
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE queues SET
 				last_served_at = NOW(),
+				serving_student_id = $2,
 				session_sample_count = session_sample_count + CASE WHEN last_served_at IS NULL THEN 0 ELSE 1 END,
 				average_session_duration_seconds = CASE
 					WHEN last_served_at IS NULL THEN average_session_duration_seconds
@@ -316,7 +330,7 @@ func Next(db *sql.DB) http.HandlerFunc {
 					ELSE (average_session_duration_seconds * session_sample_count + EXTRACT(EPOCH FROM (NOW() - last_served_at))) / (session_sample_count + 1)
 				END
 			WHERE id = $1
-		`, queueID); err != nil {
+		`, queueID, e.StudentID); err != nil {
 			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
@@ -345,6 +359,8 @@ func Next(db *sql.DB) http.HandlerFunc {
 			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
+
+		log.Printf("queue next: queue_id=%d ta_id=%d dequeued_student_id=%d", queueID, claims.UserID, e.StudentID)
 
 		DefaultHub.Publish(queueID, QueueEvent{
 			Type:    EventStudentServed,
