@@ -226,6 +226,62 @@ func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
 	}
 }
 
+// Closed queues cannot be paused; must reopen to open first. Same-status PATCH is a no-op (200, no spurious error).
+func TestQueueState_InvalidTransitionIdempotent(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_tr_%d", suffix),
+		"email":    fmt.Sprintf("ta_tr_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+	statePath := fmt.Sprintf("/api/queues/%d/state", q.ID)
+
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "closed"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("close: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// invalid: closed -> paused
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "paused"}, ta.Token)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("closed->paused: expected 409 got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var errBody struct {
+		Code    string   `json:"code"`
+		Message string   `json:"message"`
+		Details struct { Allowed []string `json:"allowed"` } `json:"details"`
+	}
+	_ = json.NewDecoder(rr.Body).Decode(&errBody)
+	if errBody.Code != "invalid_state_transition" {
+		t.Fatalf("code: %q", errBody.Code)
+	}
+
+	// reopen, then idempotent open->open
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "open"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reopen: %d %s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "open"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("idempotent open: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 // Edge cases: duplicate join, leave when not in queue, next on empty queue.
 func TestQueueEdgeCases_DuplicateJoin_LeaveNotInQueue_NextEmpty(t *testing.T) {
 	database, ts := newTestServer(t)
@@ -350,6 +406,7 @@ func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
 		t.Fatalf("get queue: %d %s", rr.Code, rr.Body.String())
 	}
 	var getResp struct {
+		IsEmpty          bool    `json:"is_empty"`
 		AverageSession   float64 `json:"average_session_duration_seconds"`
 		TAAverageSession float64 `json:"ta_average_session_duration_seconds"`
 		EstimatedMax     int64   `json:"estimated_wait_time_seconds"`
@@ -367,6 +424,9 @@ func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
 	if getResp.TAAverageSession != 0 {
 		t.Fatalf("no TA samples yet: ta avg should be 0, got %v", getResp.TAAverageSession)
 	}
+	if getResp.IsEmpty {
+		t.Fatalf("expected is_empty false with one student")
+	}
 	if len(getResp.Entries) != 1 {
 		t.Fatalf("entries: %d", len(getResp.Entries))
 	}
@@ -376,5 +436,48 @@ func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
 	}
 	if getResp.EstimatedMax != 0 {
 		t.Fatalf("one student at front: max wait %d", getResp.EstimatedMax)
+	}
+}
+
+// GET /api/queues/{id} sets is_empty true when there are no students in line.
+func TestGetQueue_EmptyQueue_IsEmptyTrue(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_e_%d", suffix),
+		"email":    fmt.Sprintf("ta_e_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+
+	rr = doJSON(t, ts, http.MethodGet, fmt.Sprintf("/api/queues/%d", q.ID), nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var getResp struct {
+		IsEmpty bool `json:"is_empty"`
+		Entries []any `json:"entries"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&getResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !getResp.IsEmpty {
+		t.Fatalf("expected is_empty true, got false")
+	}
+	if len(getResp.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(getResp.Entries))
 	}
 }

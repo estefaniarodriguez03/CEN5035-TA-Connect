@@ -19,17 +19,19 @@ func queueStateJSON(
 		w := EstimateWaitSeconds(etaAvg, enriched[i].Position)
 		enriched[i].EstimatedWaitSeconds = w
 	}
+	n := len(enriched)
 	return map[string]any{
 		"id":         id,
 		"course_id":  courseID,
 		"ta_id":      taID,
 		"status":     status,
 		"created_at": createdAt,
+		"is_empty":   n == 0,
 		// This queue’s observed average (0 until the second /next on this queue).
 		"average_session_duration_seconds": queueAverageSec,
 		// Same metric aggregated across all queues owned by this TA.
 		"ta_average_session_duration_seconds": taAverageSec,
-		"estimated_wait_time_seconds":           EstimateMaxWaitSecondsForQueue(etaAvg, len(enriched)),
+		"estimated_wait_time_seconds":           EstimateMaxWaitSecondsForQueue(etaAvg, n),
 		"entries":                               enriched,
 	}
 }

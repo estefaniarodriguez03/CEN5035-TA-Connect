@@ -270,7 +270,7 @@ func Next(db *sql.DB) http.HandlerFunc {
 			LIMIT 1
 		`, queueID).Scan(&e.ID, &e.QueueID, &e.StudentID, &e.Position, &e.JoinedAt, &username)
 		if err == sql.ErrNoRows {
-			httperr.Write(w, http.StatusNotFound, "queue_empty", "queue is empty", nil)
+			httperr.Write(w, http.StatusNotFound, "queue_empty", "queue is empty", map[string]int{"queue_id": queueID})
 			return
 		}
 		if err != nil {
@@ -413,6 +413,32 @@ func updateQueueState(db *sql.DB, allowedMethod string) http.HandlerFunc {
 		}
 		if taID != claims.UserID {
 			httperr.Write(w, http.StatusForbidden, "not_queue_owner", "only the owning TA can update this queue", nil)
+			return
+		}
+
+		fromStatus := QueueStatus(previous)
+		if !fromStatus.Valid() {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "invalid queue data", nil)
+			return
+		}
+		if !CanTransitionTo(fromStatus, newStatus) {
+			msg := `invalid state transition: from "` + string(fromStatus) + `" to "` + string(newStatus) + `"`
+			if fromStatus == QueueStatusClosed {
+				msg += `; reopen the queue to "open" first`
+			}
+			httperr.Write(w, http.StatusConflict, "invalid_state_transition", msg, map[string]any{
+				"from":    string(fromStatus),
+				"to":      string(newStatus),
+				"allowed": AllowedTargetStatuses(fromStatus),
+			})
+			return
+		}
+
+		if previous == string(newStatus) {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id":     queueID,
+				"status": string(newStatus),
+			})
 			return
 		}
 

@@ -10,7 +10,17 @@ import whiteProfileIcon from "../images/White Profile Icon.png";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, postQueueAnnouncement, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueState } from "../api/queue";
-import type { QueueStatus, QueueEvent, QueueStateChangePayload, AnnouncementSentPayload } from "../api/queue";
+import type {
+  NextQueueError,
+  QueueStatus,
+  QueueEvent,
+  QueueStateChangePayload,
+  AnnouncementSentPayload,
+} from "../api/queue";
+
+function isNextQueueError(e: unknown): e is NextQueueError {
+  return e !== null && typeof e === "object" && "code" in e && typeof (e as NextQueueError).code === "string";
+}
 import MyOfficeHoursPage from "./MyOfficeHoursPage";
 
 interface QueueStudent {
@@ -280,7 +290,11 @@ export default function TADashboard() {
       await refreshQueueData();
       toast.success(`Starting session with ${student.name}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to start session';
+      if (isNextQueueError(error) && error.code === "queue_empty") {
+        toast.info("The queue is empty. No students are waiting right now.");
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to start session";
       toast.info(message);
     }
   };
@@ -300,7 +314,11 @@ export default function TADashboard() {
       await refreshQueueData();
       toast.warning(`Removed ${student.name} from queue`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to remove student';
+      if (isNextQueueError(error) && error.code === "queue_empty") {
+        toast.info("The queue is empty. No students to remove or advance.");
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to remove student";
       toast.info(message);
     }
   };
