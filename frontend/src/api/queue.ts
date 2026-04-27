@@ -1,3 +1,5 @@
+import { readApiErrorMessage } from "./errors";
+
 export interface QueueEntry {
   id: number;
   queue_id: number;
@@ -92,9 +94,7 @@ function getAuthToken(): string {
 async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json();
-    if (data?.error && typeof data.error === "string") {
-      return data.error;
-    }
+    return readApiErrorMessage(data, fallback);
   } catch {
     // ignore JSON parse errors and use fallback
   }

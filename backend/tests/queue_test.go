@@ -184,12 +184,12 @@ func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("join paused: expected 409 got %d, body=%s", rr.Code, rr.Body.String())
 	}
-	var joinErr map[string]string
+	var joinErr stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&joinErr); err != nil {
 		t.Fatalf("decode join error: %v", err)
 	}
-	if joinErr["error"] != "queue is paused" {
-		t.Fatalf("join paused message: got %q", joinErr["error"])
+	if joinErr.Message != "queue is paused" {
+		t.Fatalf("join paused message: got %q", joinErr.Message)
 	}
 
 	// PATCH state -> closed
@@ -205,8 +205,8 @@ func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&joinErr); err != nil {
 		t.Fatalf("decode join error: %v", err)
 	}
-	if joinErr["error"] != "queue is closed" {
-		t.Fatalf("join closed message: got %q", joinErr["error"])
+	if joinErr.Message != "queue is closed" {
+		t.Fatalf("join closed message: got %q", joinErr.Message)
 	}
 
 	// Re-open and join succeeds

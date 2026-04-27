@@ -2,20 +2,14 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
+
+	"backend/internal/httperr"
 )
 
 type contextKey string
 
 const claimsKey contextKey = "auth_claims"
-
-// ForbiddenResponse is the structured body returned for 403 errors.
-type ForbiddenResponse struct {
-	Error        string `json:"error"`
-	Code         string `json:"code"`
-	RequiredRole string `json:"required_role,omitempty"`
-}
 
 // ClaimsFromContext retrieves the JWT claims stored by RequireAuth middleware.
 // Returns nil if no claims are present (should not happen behind RequireAuth).
@@ -30,12 +24,7 @@ func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, err := GetClaimsFromRequest(r)
 		if err != nil || claims == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error": "authorization required",
-				"code":  "auth_required",
-			})
+			httperr.Write(w, http.StatusUnauthorized, "auth_required", "authorization required", nil)
 			return
 		}
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
@@ -51,12 +40,7 @@ func RequireRole(allowed ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := ClaimsFromContext(r.Context())
 			if claims == nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]string{
-					"error": "authorization required",
-					"code":  "auth_required",
-				})
+				httperr.Write(w, http.StatusUnauthorized, "auth_required", "authorization required", nil)
 				return
 			}
 			for _, role := range allowed {
@@ -65,16 +49,13 @@ func RequireRole(allowed ...string) func(http.Handler) http.Handler {
 					return
 				}
 			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			resp := ForbiddenResponse{
-				Error: "you do not have permission to access this resource",
-				Code:  "role_forbidden",
-			}
+			var details any
 			if len(allowed) == 1 {
-				resp.RequiredRole = allowed[0]
+				details = map[string]string{"required_role": allowed[0]}
+			} else {
+				details = map[string]any{"allowed_roles": allowed}
 			}
-			_ = json.NewEncoder(w).Encode(resp)
+			httperr.Write(w, http.StatusForbidden, "role_forbidden", "you do not have permission to access this resource", details)
 		})
 	}
 }

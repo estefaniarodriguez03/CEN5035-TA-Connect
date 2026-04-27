@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/httperr"
 	"backend/internal/officehour"
 	"backend/internal/queue"
 
@@ -66,12 +67,11 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 // healthHandler returns 200 if the database connection is alive, 503 otherwise.
 func healthHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
 		if err := db.PingContext(r.Context()); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"status":"unavailable","error":"database"}`))
+			httperr.Write(w, http.StatusServiceUnavailable, "service_unavailable", "database unavailable", nil)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}

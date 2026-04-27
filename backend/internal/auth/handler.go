@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"backend/internal/httperr"
 )
 
 // LoginRequest is the JSON body for POST /api/login.
@@ -36,16 +38,16 @@ type AuthResponse struct {
 func Login(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			httperr.Write(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 			return
 		}
 		var req LoginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 			return
 		}
 		if req.Email == "" || req.Password == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email and password required"})
+			httperr.Write(w, http.StatusBadRequest, "validation_error", "email and password required", nil)
 			return
 		}
 
@@ -54,21 +56,21 @@ func Login(db *sql.DB) http.HandlerFunc {
 		err := db.QueryRowContext(r.Context(),
 			`SELECT id, username, email, password, role FROM users WHERE email = $1`, req.Email).Scan(&id, &username, &email, &passwordHash, &role)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+			httperr.Write(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if !CheckPassword(passwordHash, req.Password) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+			httperr.Write(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password", nil)
 			return
 		}
 
 		token, err := NewToken(id, email, role)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create token"})
+			httperr.Write(w, http.StatusInternalServerError, "token_unavailable", "could not create token", nil)
 			return
 		}
 		writeAuthResponse(w, token, id, username, email, role)
@@ -79,26 +81,26 @@ func Login(db *sql.DB) http.HandlerFunc {
 func Register(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			httperr.Write(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 			return
 		}
 		var req RegisterRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 			return
 		}
 		if req.Username == "" || req.Email == "" || req.Password == "" || req.Role == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, email, password and role required"})
+			httperr.Write(w, http.StatusBadRequest, "validation_error", "username, email, password and role required", nil)
 			return
 		}
 		if req.Role != "student" && req.Role != "ta" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role must be 'student' or 'ta'"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_role", "role must be 'student' or 'ta'", nil)
 			return
 		}
 
 		hash, err := HashPassword(req.Password)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not hash password"})
+			httperr.Write(w, http.StatusInternalServerError, "password_hash_failed", "could not hash password", nil)
 			return
 		}
 
@@ -108,16 +110,16 @@ func Register(db *sql.DB) http.HandlerFunc {
 			req.Username, req.Email, hash, req.Role).Scan(&id)
 		if err != nil {
 			if IsUniqueViolation(err) {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "username or email already in use"})
+				httperr.Write(w, http.StatusConflict, "conflict_unique", "username or email already in use", nil)
 				return
 			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
 		token, err := NewToken(id, req.Email, req.Role)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create token"})
+			httperr.Write(w, http.StatusInternalServerError, "token_unavailable", "could not create token", nil)
 			return
 		}
 		writeAuthResponse(w, token, id, req.Username, req.Email, req.Role)
