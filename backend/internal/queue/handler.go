@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -35,6 +36,17 @@ type PostAnnouncementRequest struct {
 	Message string `json:"message"`
 }
 
+func ensureCourseExists(ctx context.Context, db *sql.DB, courseID int) error {
+	code := "AUTO-" + strconv.Itoa(courseID)
+	name := "Auto-created course " + strconv.Itoa(courseID)
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO courses (id, code, name)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO NOTHING
+	`, courseID, code, name)
+	return err
+}
+
 // CreateQueue handles POST /api/queues. TA creates a new queue.
 // Auth and role=ta enforced by middleware.
 func CreateQueue(db *sql.DB) http.HandlerFunc {
@@ -43,6 +55,11 @@ func CreateQueue(db *sql.DB) http.HandlerFunc {
 
 		var req CreateQueueRequest
 		_ = json.NewDecoder(r.Body).Decode(&req) // optional body
+
+		if err := ensureCourseExists(r.Context(), db, req.CourseID); err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
 
 		var id int
 		var createdAt string
