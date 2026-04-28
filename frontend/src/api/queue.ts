@@ -278,6 +278,7 @@ export async function startSession(
     body: JSON.stringify({ student_id: studentID, topic }),
   });
 
+  if (!res.ok) {
     const message = await parseErrorMessage(res, "Failed to start session");
     throw new Error(message);
   }
@@ -312,6 +313,7 @@ export function browseWaitDisplay(data: QueueData): { line: string; sub: string 
 
 /** Wait label for the in-queue card (uses per-entry seconds when available). */
 export function myWaitMinutesFromEntry(entry: QueueEntry | undefined): number {
+  if (!entry) {
     return 0;
   }
   const s = entry.estimated_wait_seconds;
