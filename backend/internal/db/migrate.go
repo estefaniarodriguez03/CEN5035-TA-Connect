@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS queue_announcements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_announcements_queue_created ON queue_announcements(queue_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	id SERIAL PRIMARY KEY,
+	queue_id INT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
+	ta_id INT NOT NULL REFERENCES users(id),
+	student_id INT NOT NULL REFERENCES users(id),
+	zoom_meeting_id TEXT NOT NULL DEFAULT '',
+	zoom_join_url TEXT NOT NULL DEFAULT '',
+	zoom_start_url TEXT NOT NULL DEFAULT '',
+	zoom_passcode TEXT NOT NULL DEFAULT '',
+	started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	ended_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_queue_started ON sessions(queue_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_ta ON sessions(ta_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_student ON sessions(student_id, started_at DESC);
 `
 	_, err := db.Exec(query)
 	return err

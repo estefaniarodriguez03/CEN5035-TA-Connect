@@ -18,6 +18,7 @@ const (
 	EventQueueUpdated        EventType = "QUEUE_UPDATED"
 	EventStudentServed       EventType = "STUDENT_SERVED"
 	EventQueueStateChanged   EventType = "QUEUE_STATE_CHANGED"
+	EventSessionStarted      EventType = "SESSION_STARTED"
 )
 
 // AllEventTypes lists every SSE event name the hub may emit (for clients/tests).
@@ -29,6 +30,7 @@ var AllEventTypes = []EventType{
 	EventQueueUpdated,
 	EventStudentServed,
 	EventQueueStateChanged,
+	EventSessionStarted,
 }
 
 type QueueEvent struct {

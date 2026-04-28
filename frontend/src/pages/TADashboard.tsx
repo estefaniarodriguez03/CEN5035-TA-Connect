@@ -9,12 +9,13 @@ import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, postQueueAnnouncement, setActiveQueueForCourse, setActiveQueueForOfficeHour, subscribeToQueueEvents, updateQueueState } from "../api/queue";
-import type { QueueStatus, QueueEvent, QueueStateChangePayload, AnnouncementSentPayload } from "../api/queue";
+import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, postQueueAnnouncement, setActiveQueueForCourse, setActiveQueueForOfficeHour, startSession, subscribeToQueueEvents, updateQueueState } from "../api/queue";
+import type { QueueStatus, QueueEvent, QueueStateChangePayload, AnnouncementSentPayload, StartSessionResponse } from "../api/queue";
 import MyOfficeHoursPage from "./MyOfficeHoursPage";
 
 interface QueueStudent {
   id: number;
+  studentUserID: number;
   position: number;
   name: string;
   waitTime: string;
@@ -43,6 +44,10 @@ export default function TADashboard() {
   const [activeCourseCode, setActiveCourseCode] = useState<string | null>(null);
   const [activeOfficeHourTime, setActiveOfficeHourTime] = useState<string | null>(null);
   const [selectedOfficeHourID, setSelectedOfficeHourID] = useState<number | null>(null);
+  const [activeSession, setActiveSession] = useState<{
+    session: StartSessionResponse;
+    studentName: string;
+  } | null>(null);
 
   // TA dashboard currently operates on one selected office hour at a time.
 
@@ -54,6 +59,7 @@ export default function TADashboard() {
 
   const mapQueueEntriesToStudents = (entries: Array<{
     id: number;
+    student_id: number;
     position: number;
     username: string;
     joined_at: string;
@@ -62,6 +68,7 @@ export default function TADashboard() {
       const joinedAt = new Date(entry.joined_at);
       return {
         id: entry.id,
+        studentUserID: entry.student_id,
         position: entry.position,
         name: entry.username,
         joinedAt,
@@ -276,13 +283,44 @@ export default function TADashboard() {
       return;
     }
     try {
-      await nextQueueStudent(activeQueueID);
+      const session = await startSession(activeQueueID, student.studentUserID);
+      setActiveSession({ session, studentName: student.name });
+
+      // Open the host start URL for the TA in a new tab so they can launch
+      // Zoom immediately. Browsers may block this if the click handler chain
+      // is interrupted; the modal still surfaces the link as a fallback.
+      const hostURL = session.zoom_start_url || session.zoom_join_url;
+      if (hostURL) {
+        try {
+          window.open(hostURL, '_blank', 'noopener,noreferrer');
+        } catch {
+          // popup blocked; the modal still shows the link.
+        }
+      }
+
       await refreshQueueData();
-      toast.success(`Starting session with ${student.name}`);
+      toast.success(`Starting session with ${student.name}`, {
+        description: 'Zoom meeting created.',
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start session';
-      toast.info(message);
+      toast.error(message);
     }
+  };
+
+  const handleCopySessionLink = async () => {
+    if (!activeSession) return;
+    const url = activeSession.session.zoom_join_url;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Zoom link copied');
+    } catch {
+      toast.info(url);
+    }
+  };
+
+  const handleEndSessionModal = () => {
+    setActiveSession(null);
   };
 
   const handleRemoveStudent = async (student: QueueStudent) => {
@@ -656,6 +694,69 @@ export default function TADashboard() {
             </div>
           )}
         </>
+      )}
+
+      {/* Active Session Modal */}
+      {activeSession && (
+        <div className="announcement-modal-overlay">
+          <div className="announcement-modal-card">
+            <div className="announcement-modal-header">
+              <h3 className="announcement-modal-title">
+                Session with {activeSession.studentName}
+              </h3>
+              <button onClick={handleEndSessionModal}
+                className="announcement-modal-close-btn">
+                ✕
+              </button>
+            </div>
+            <div className="announcement-modal-body">
+              <p className="announcement-modal-description">
+                A Zoom meeting has been created for this session.
+              </p>
+
+              <div className="queue-detail-row" style={{ marginTop: '0.5rem' }}>
+                <span className="detail-label">Meeting ID</span>
+                <span className="detail-value">{activeSession.session.zoom_meeting_id || '—'}</span>
+              </div>
+              {activeSession.session.zoom_passcode && (
+                <div className="queue-detail-row">
+                  <span className="detail-label">Passcode</span>
+                  <span className="detail-value">{activeSession.session.zoom_passcode}</span>
+                </div>
+              )}
+              <div className="queue-detail-row">
+                <span className="detail-label">Join URL</span>
+                <a
+                  className="detail-value"
+                  href={activeSession.session.zoom_join_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ wordBreak: 'break-all' }}
+                >
+                  {activeSession.session.zoom_join_url}
+                </a>
+              </div>
+
+              <div className="announcement-modal-actions">
+                <button
+                  onClick={handleCopySessionLink}
+                  className="announcement-cancel-btn"
+                >
+                  Copy Link
+                </button>
+                <a
+                  href={activeSession.session.zoom_start_url || activeSession.session.zoom_join_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="start-queue-btn announcement-send-all-btn"
+                  style={{ textAlign: 'center', textDecoration: 'none' }}
+                >
+                  Open Zoom
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Announcement Modal */}

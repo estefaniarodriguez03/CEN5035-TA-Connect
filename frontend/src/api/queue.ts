@@ -40,6 +40,17 @@ export interface AnnouncementSentPayload {
   created_at: string;
 }
 
+export interface SessionStartedPayload {
+  session_id: number;
+  student_id: number;
+  student_name: string;
+  ta_id: number;
+  zoom_join_url: string;
+  zoom_meeting_id: string;
+  zoom_passcode: string;
+  started_at: string;
+}
+
 export interface QueueEvent {
   type:
     | "STUDENT_JOINED"
@@ -48,12 +59,14 @@ export interface QueueEvent {
     | "STUDENT_SERVED"
     | "STUDENT_UP_NEXT"
     | "ANNOUNCEMENT_SENT"
-    | "QUEUE_STATE_CHANGED";
+    | "QUEUE_STATE_CHANGED"
+    | "SESSION_STARTED";
   queue_id: number;
   payload?:
     | QueueStateChangePayload
     | StudentUpNextPayload
     | AnnouncementSentPayload
+    | SessionStartedPayload
     | Record<string, unknown>;
 }
 
@@ -61,6 +74,19 @@ export interface NextQueueResponse {
   queue_id: number;
   status: "in_session";
   student: QueueEntry;
+}
+
+export interface StartSessionResponse {
+  id: number;
+  queue_id: number;
+  ta_id: number;
+  student_id: number;
+  student_name?: string;
+  zoom_meeting_id: string;
+  zoom_join_url: string;
+  zoom_start_url: string;
+  zoom_passcode: string;
+  started_at: string;
 }
 
 export interface CreateQueueResponse {
@@ -225,6 +251,28 @@ export async function nextQueueStudent(queueID: number): Promise<NextQueueRespon
   return res.json();
 }
 
+export async function startSession(
+  queueID: number,
+  studentID: number,
+  topic?: string
+): Promise<StartSessionResponse> {
+  const res = await fetch(`${API_BASE}/queues/${queueID}/session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAuthToken()}`,
+    },
+    body: JSON.stringify({ student_id: studentID, topic }),
+  });
+
+  if (!res.ok) {
+    const message = await parseErrorMessage(res, "Failed to start session");
+    throw new Error(message);
+  }
+
+  return res.json();
+}
+
 export async function createQueue(courseID: number): Promise<CreateQueueResponse> {
   const res = await fetch(`${API_BASE}/queues`, {
     method: "POST",
@@ -350,6 +398,7 @@ const SSE_EVENT_NAMES: QueueEvent["type"][] = [
   "ANNOUNCEMENT_SENT",
   "QUEUE_UPDATED",
   "QUEUE_STATE_CHANGED",
+  "SESSION_STARTED",
 ];
 
 export function subscribeToQueueEvents(

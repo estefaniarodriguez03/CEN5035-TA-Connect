@@ -8,7 +8,7 @@ import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
 import { getActiveQueueForOfficeHour, joinQueue, leaveQueue, getQueueOrNull, subscribeToQueueEvents } from "../api/queue";
-import type { QueueEvent, QueueStateChangePayload, StudentUpNextPayload, AnnouncementSentPayload } from "../api/queue";
+import type { QueueEvent, QueueStateChangePayload, StudentUpNextPayload, AnnouncementSentPayload, SessionStartedPayload } from "../api/queue";
 
 interface TAHour {
   id: number;
@@ -60,6 +60,7 @@ export default function StudentDashboard() {
   const [queueStudentCount, setQueueStudentCount] = useState(0);
   const [joinedQueueID, setJoinedQueueID] = useState<number | null>(null);
   const [queueStatusForCourse, setQueueStatusForCourse] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<SessionStartedPayload | null>(null);
 
   const courseOptions: CourseOption[] = [
     {
@@ -240,6 +241,19 @@ export default function StudentDashboard() {
         const nextStudentID = extractUpNextStudentID(evt.payload);
         if (nextStudentID !== null && nextStudentID === user?.id) {
           toast.success("You're up next. Please get ready!");
+        }
+      }
+      if (evt.type === "SESSION_STARTED") {
+        const p = evt.payload as SessionStartedPayload | undefined;
+        if (p && p.student_id === user?.id) {
+          setActiveSession(p);
+          toast.success("Your session is starting now!", {
+            description: "Click the Zoom link to join the meeting.",
+          });
+          // The backend has already removed this student from the queue.
+          setIsInQueue(false);
+          setJoinedQueueID(null);
+          setStudentPosition(null);
         }
       }
       if (evt.type === "ANNOUNCEMENT_SENT") {
@@ -625,6 +639,74 @@ export default function StudentDashboard() {
               </div>
             ))}
           </div>
+
+          {/* Session Started Modal */}
+          {activeSession && (
+            <div className="announcement-modal-overlay">
+              <div className="announcement-modal-card">
+                <div className="announcement-modal-header">
+                  <h3 className="announcement-modal-title">
+                    Your Session Is Ready
+                  </h3>
+                  <button
+                    onClick={() => setActiveSession(null)}
+                    className="announcement-modal-close-btn"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="announcement-modal-body">
+                  <p className="announcement-modal-description">
+                    {activeSession.student_name
+                      ? `${activeSession.student_name}, your TA has started the session.`
+                      : 'Your TA has started the session.'}{' '}
+                    Click below to join the Zoom meeting.
+                  </p>
+
+                  <div className="queue-detail-row" style={{ marginTop: '0.5rem' }}>
+                    <span className="detail-label">Meeting ID</span>
+                    <span className="detail-value">{activeSession.zoom_meeting_id || '—'}</span>
+                  </div>
+                  {activeSession.zoom_passcode && (
+                    <div className="queue-detail-row">
+                      <span className="detail-label">Passcode</span>
+                      <span className="detail-value">{activeSession.zoom_passcode}</span>
+                    </div>
+                  )}
+                  <div className="queue-detail-row">
+                    <span className="detail-label">Join URL</span>
+                    <a
+                      className="detail-value"
+                      href={activeSession.zoom_join_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ wordBreak: 'break-all' }}
+                    >
+                      {activeSession.zoom_join_url}
+                    </a>
+                  </div>
+
+                  <div className="announcement-modal-actions">
+                    <button
+                      onClick={() => setActiveSession(null)}
+                      className="announcement-cancel-btn"
+                    >
+                      Dismiss
+                    </button>
+                    <a
+                      href={activeSession.zoom_join_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="start-queue-btn announcement-send-all-btn"
+                      style={{ textAlign: 'center', textDecoration: 'none' }}
+                    >
+                      Join Zoom Meeting
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Course Legend */}
           <div className="course-legend">
