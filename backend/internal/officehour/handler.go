@@ -1,6 +1,7 @@
 package officehour
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,17 @@ type CreateOfficeHourRequest struct {
 	StartTime string `json:"start_time"`
 	EndTime   string `json:"end_time"`
 	Location  string `json:"location"`
+}
+
+func ensureCourseExists(ctx context.Context, db *sql.DB, courseID int) error {
+	code := "AUTO-" + strconv.Itoa(courseID)
+	name := "Auto-created course " + strconv.Itoa(courseID)
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO courses (id, code, name)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO NOTHING
+	`, courseID, code, name)
+	return err
 }
 
 // Create handles POST /api/office-hours. TA-only; rejects overlapping slots for the same TA and day.
@@ -53,6 +65,10 @@ func Create(db *sql.DB) http.HandlerFunc {
 		}
 		if !startClock.Before(endClock) {
 			httperr.Write(w, http.StatusBadRequest, "invalid_time_range", "start_time must be before end_time", nil)
+			return
+		}
+		if err := ensureCourseExists(r.Context(), db, req.CourseID); err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -154,6 +170,10 @@ func Update(db *sql.DB) http.HandlerFunc {
 
 		startStr := startClock.Format("15:04:05")
 		endStr := endClock.Format("15:04:05")
+		if err := ensureCourseExists(r.Context(), db, req.CourseID); err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
 
 		var overlaps bool
 		err = db.QueryRowContext(r.Context(), `

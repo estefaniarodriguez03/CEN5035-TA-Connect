@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/course"
 	"backend/internal/httperr"
 	"backend/internal/officehour"
 	"backend/internal/queue"
@@ -51,6 +52,8 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Post("/api/queues/{id}/status", queue.UpdateStatus(db))
 		r.Post("/api/queues/{id}/next", queue.Next(db))
 		r.Post("/api/queues/{id}/announcement", queue.PostAnnouncement(db))
+		r.Post("/api/ta/courses", course.AddForTA(db))
+		r.Get("/api/ta/courses", course.ListForTA(db))
 	})
 
 	// --- Student-only routes ---
