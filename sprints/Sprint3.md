@@ -1,12 +1,21 @@
 # TA Connect Sprint 3
 
 ## Video Link
-* **Front-End:** ...
+* **Front-End:** https://youtu.be/3amphGm6wt8
 * **Back-End:** https://youtu.be/50ld7DyK2hM
+
+**Frontend + Backend connection shown in Frontend video!**
 
 ## Detail Work Completed in Sprint 3
 ### Front-End
-* ...
+* Created “My Courses” Office Hour Dashboard for Students
+* Created Student Office Hour View Pagee
+* Built Create/Edit Office Hour Form
+* Built TA Schedule Management Page
+* Implemented Auto-Update ETA When Queue Changes
+* Implemented Display of ETA on Student Queue Page
+* Implemented TA Notification on Join/Leaveenhancement
+* Implemented Global Notification Component
 
 ### Back-End
 * Added Announcement Model & API
@@ -24,7 +33,7 @@
 * Implemented Create Office Hour API
 
 ## List Frontend Unit Tests
-### Cypress
+### Cypress - Sprint 2
 - Visit TA Connect Home Page
   - **Visits the TA Connect home page:** Verifies that the app loads successfully at the root URL
 
@@ -60,6 +69,30 @@
   - **Toggles to Resume Queue after clicking Pause Queue:** Verifies that the queue status toggles to paused when Pause Queue is clicked
   - **Toggles back to Pause Queue after clicking Resume Queue:** Verifies that the queue status toggles back to open when Resume Queue is clicked
   - **Returns to the dashboard view after closing the queue:** Verifies that clicking Close Queue returns to the TA dashboard
+ 
+### Cypress - Sprint 3
+- TA Dashboard — My Office Hours Tab
+  - **Navigates to My Office Hours tab when clicked:** Verifies that clicking the My Office Hours tab opens the office hours management view
+  - **Displays the Add Office Hours button on the My Office Hours tab:** Verifies that the + Add Office Hours button is visible on the My Office Hours page
+  - **Opens the Add Office Hours modal when button is clicked:** Verifies that clicking + Add Office Hours opens the modal with two time input fields
+  - **Adds a new office hour and displays it in the schedule:** Verifies that a newly added office hour appears in the schedule
+  - **Shows a success toast after adding office hours:** Verifies that a success notification appears after adding office hours
+  - **Shows an error toast when required fields are missing:** Verifies that an error notification appears if the Add Schedule form is submitted incomplete
+  - **Opens the edit modal pre-filled when Edit is clicked:** Verifies that clicking Edit opens the Edit Office Hours modal with existing values populated
+  - **Updates an office hour and shows success toast:** Verifies that editing an office hour updates the schedule and shows a success notification
+  - **Deletes an office hour and shows success toast:** Verifies that deleting an office hour removes it and shows a success notification
+  - **Shows empty state for days with no office hours:** Verifies that a no office hours scheduled message appears when no office hours exist for a day
+  - **Navigates back to Dashboard tab from My Office Hours:** Verifies that clicking Dashboard returns to the TA dashboard view
+
+- Toast Notifications
+  - **Shows toast notifications on the student dashboard:** Verifies that an error toast appears when a student tries to join a queue that has not been opened yet
+
+- Student Dashboard — Queue Interaction
+  - **Does not display a status banner for an open queue:** Verifies that no queue status banner is shown when the selected queue is open
+  - **Does not show queue status banners while the student is in the queue:** Verifies that queue status banners are hidden after the student joins the queue
+  - **Displays the Estimated Wait Time card:** Verifies that the Estimated Wait Time card is visible on the student dashboard
+  - **Displays student count in the wait time card:** Verifies that the current number of students in queue is shown in the wait time card
+  - **Navigates to the My Courses page when My Courses tab is clicked:** Verifies that clicking My Courses navigates to the My Courses page
 
 ### Unit Tests (Vitest + React Testing Library) - Sprint 2
 
@@ -93,6 +126,35 @@
   - **Closes queue and returns to closed dashboard state:** Verifies that closing the queue calls the backend and returns to the dashboard view
   - **Opens announcement modal from dashboard and sends announcement:** Verifies that the announcement modal opens, accepts input, and sends the announcement
   - **Calls next endpoint when starting session on first queued student:** Verifies that clicking Start Session calls the nextQueueStudent API with the correct queue ID
+
+ ### Unit Tests (Vitest + React Testing Library) - Sprint 3
+
+- My Courses Page
+  - **Renders my courses page with navbar and weekly view by default:** Verifies that the My Courses page loads with the navbar and Weekly view selected by default
+  - **Switches to today view when clicking Today button:** Verifies that clicking the Today button activates the Today view and displays today's office hours
+  - **Opens add office hours modal when clicking add button:** Verifies that clicking Add Office Hours opens the modal with the expected form fields
+  - **Closes modal when clicking X button:** Verifies that clicking the close button dismisses the Add Office Hours modal
+  - **Adds office hours to weekly view with form submission:** Verifies that submitting the Add Office Hours form adds office hours to the weekly view
+  - **Deletes office hour from weekly view:** Verifies that deleting an office hour removes it from the weekly view
+  - **Shows no queue today button for courses with no office hours:** Verifies that courses without office hours today display a No queue today button
+  - **Changes office hour to no office hours today when deleted from today view:** Verifies that deleting an office hour from Today view updates the course to show no office hours today
+  - **Displays join queue button for courses with office hours today:** Verifies that courses with office hours today display a Join Queue button
+  - **Navigates back to student dashboard when clicking dashboard nav:** Verifies that clicking Dashboard navigates back to the student dashboard
+
+- My Office Hours Page
+  - **Switches to My Office Hours tab when clicked:** Verifies that clicking My Office Hours opens the office hours management view
+  - **Switches back to Dashboard tab from My Office Hours:** Verifies that clicking Dashboard returns to the TA dashboard from the My Office Hours tab
+  - **Renders the page header and Add Office Hours button:** Verifies that the My Office Hours page header, description, and Add Office Hours button are visible
+  - **Renders all seven days of the week:** Verifies that all seven weekday sections are displayed on the page
+  - **Shows empty state message for days with no office hours:** Verifies that days without scheduled office hours display the empty state message
+  - **Renders existing office hours fetched from the backend:** Verifies that existing office hours and course information are displayed after loading
+  - **Opens Add Office Hours modal when button is clicked:** Verifies that clicking + Add Office Hours opens the Add Office Hours modal
+  - **Closes Add modal when Cancel is clicked:** Verifies that clicking Cancel closes the Add Office Hours modal
+  - **Shows error toast if required fields are missing on add:** Verifies that submitting the add form with missing required fields shows an error toast
+  - **Calls createOfficeHour:** Verifies that submitting valid office hour information triggers office hour creation
+  - **Deletes an office hour and shows success toast:** Verifies that deleting an office hour removes it and shows a success toast
+  - **Opens edit modal pre-filled with existing office hour data:** Verifies that clicking Edit opens the Edit Office Hours modal with existing values populated
+  - **Updates an office hour and shows success toast on edit submission:** Verifies that editing an office hour updates it and shows a success toast
 
 ## List Backend Unit Tests
 ### Backend Go Tests (`backend/api_e2e_test.go`) - Sprint 2
@@ -141,7 +203,7 @@
   - **SSE smoke test**: connects to `GET /api/queues/{id}/events`, then triggers a join
   - **Expectation**: receives `event: STUDENT_JOINED` on the SSE stream
 
-### Backend Go Tests (`backend/api_e2e_test.go`) — Sprint 3 additions
+### Backend Go Tests (`backend/api_e2e_test.go`) — Sprint 3
 
 **Helper:** `readSSEEventUntil` — reads the SSE stream until a named `event:` line appears and returns the JSON from the following `data:` line (full queue event envelope: `type`, `queue_id`, `payload`). Used by several notification SSE tests below.
 

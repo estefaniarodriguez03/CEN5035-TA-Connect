@@ -24,10 +24,10 @@ export default function Register() {
       }, 1500);
 
 
-    } catch (err: any) {
-      // Show error message
-      if (err?.response?.data?.error) {
-        setMessage(`Registration failed: ${err.response.data.error}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg && msg !== "Registration failed") {
+        setMessage(`Registration failed: ${msg}`);
       } else {
         setMessage("Registration failed. The username or email is already in use.");
       }

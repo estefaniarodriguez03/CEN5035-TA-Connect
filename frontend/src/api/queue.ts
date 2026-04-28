@@ -1,3 +1,5 @@
+import { readApiErrorMessage, readApiErrorFromResponse } from "./errors";
+
 export interface QueueEntry {
   id: number;
   queue_id: number;
@@ -5,6 +7,8 @@ export interface QueueEntry {
   position: number;
   joined_at: string;
   username: string;
+  /** Present when server sends ETA; seconds until this position is seen. */
+  estimated_wait_seconds?: number;
 }
 
 export interface QueueData {
@@ -13,6 +17,12 @@ export interface QueueData {
   ta_id: number;
   status: string;
   created_at: string;
+  /** True when there are zero entries (explicit from API; may be derived from entries.length). */
+  is_empty?: boolean;
+  /** Max estimated wait for last in line (seconds). */
+  estimated_wait_time_seconds?: number;
+  average_session_duration_seconds?: number;
+  ta_average_session_duration_seconds?: number;
   entries: QueueEntry[];
 }
 
@@ -118,9 +128,7 @@ function getAuthToken(): string {
 async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json();
-    if (data?.error && typeof data.error === "string") {
-      return data.error;
-    }
+    return readApiErrorMessage(data, fallback);
   } catch {
     // ignore JSON parse errors and use fallback
   }
@@ -234,6 +242,8 @@ export async function getActiveQueueByCourse(courseID: number): Promise<QueueDat
   return res.json();
 }
 
+export type NextQueueError = Error & { code: string; details: unknown };
+
 export async function nextQueueStudent(queueID: number): Promise<NextQueueResponse> {
   const res = await fetch(`${API_BASE}/queues/${queueID}/next`, {
     method: "POST",
@@ -244,8 +254,11 @@ export async function nextQueueStudent(queueID: number): Promise<NextQueueRespon
   });
 
   if (!res.ok) {
-    const message = await parseErrorMessage(res, "Failed to advance queue");
-    throw new Error(message);
+    const e = await readApiErrorFromResponse(res, "Failed to advance queue");
+    const err = new Error(e.message) as NextQueueError;
+    err.code = e.code;
+    err.details = e.details;
+    throw err;
   }
 
   return res.json();
@@ -265,12 +278,47 @@ export async function startSession(
     body: JSON.stringify({ student_id: studentID, topic }),
   });
 
-  if (!res.ok) {
     const message = await parseErrorMessage(res, "Failed to start session");
     throw new Error(message);
   }
 
   return res.json();
+}
+
+/** User-facing line + caption for the "browse" wait card (not yet in queue). */
+export function browseWaitDisplay(data: QueueData): { line: string; sub: string } {
+  const n = data.entries.length;
+  const isEmpty = data.is_empty ?? n === 0;
+  if (data.status === "closed") {
+    return { line: "—", sub: "This queue is closed" };
+  }
+  if (data.status === "paused") {
+    return { line: "—", sub: "The queue is paused" };
+  }
+  if (isEmpty || n === 0) {
+    return { line: "No students waiting", sub: "The queue is open — be the first to join" };
+  }
+  const est = data.estimated_wait_time_seconds;
+  if (typeof est === "number" && est > 0) {
+    const min = Math.max(1, Math.ceil(est / 60));
+    return { line: `~${min} min`, sub: `Estimated time if you joined the end of the line (${n} in queue)` };
+  }
+  const legacyMin = n * 4;
+  return {
+    line: legacyMin === 0 ? "0 min" : `~${legacyMin} min`,
+    sub: `Based on ${n} student(s) in queue`,
+  };
+}
+
+/** Wait label for the in-queue card (uses per-entry seconds when available). */
+export function myWaitMinutesFromEntry(entry: QueueEntry | undefined): number {
+    return 0;
+  }
+  const s = entry.estimated_wait_seconds;
+  if (typeof s === "number" && s >= 0) {
+    return Math.ceil(s / 60);
+  }
+  return Math.max(0, (entry.position - 1) * 4);
 }
 
 export async function createQueue(courseID: number): Promise<CreateQueueResponse> {

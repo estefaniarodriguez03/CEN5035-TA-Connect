@@ -3,11 +3,15 @@ package queue
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"backend/internal/auth"
+	"backend/internal/httperr"
+	"backend/internal/sessionlog"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -31,33 +35,23 @@ type PostAnnouncementRequest struct {
 	Message string `json:"message"`
 }
 
-// CreateQueue handles POST /api/queues. TA creates a new queue; requires auth and role=ta.
+// CreateQueue handles POST /api/queues. TA creates a new queue.
+// Auth and role=ta enforced by middleware.
 func CreateQueue(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can create queues"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
+
 		var req CreateQueueRequest
 		_ = json.NewDecoder(r.Body).Decode(&req) // optional body
 
 		var id int
 		var createdAt string
-		err = db.QueryRowContext(r.Context(), `
+		err := db.QueryRowContext(r.Context(), `
 			INSERT INTO queues (course_id, ta_id, status) VALUES ($1, $2, 'open')
 			RETURNING id, created_at::text
 		`, req.CourseID, claims.UserID).Scan(&id, &createdAt)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -73,33 +67,36 @@ func CreateQueue(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// Join handles POST /api/queues/{id}/join. Student joins the queue; requires auth.
+// Join handles POST /api/queues/{id}/join. Student joins the queue.
+// Auth and role=student enforced by middleware.
+// Uses a transaction to safely handle simultaneous join requests.
 func Join(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
+
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 
-		// Check queue exists and is open
+		ctx := r.Context()
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
+		defer tx.Rollback()
+
+		// Lock the queue row to serialize concurrent joins and verify status atomically.
 		var status string
-		err = db.QueryRowContext(r.Context(), `SELECT status FROM queues WHERE id = $1`, queueID).Scan(&status)
+		err = tx.QueryRowContext(ctx, `SELECT status FROM queues WHERE id = $1 FOR UPDATE`, queueID).Scan(&status)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			httperr.Write(w, http.StatusNotFound, "queue_not_found", "queue not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if QueueStatus(status) != QueueStatusOpen {
@@ -110,14 +107,14 @@ func Join(db *sql.DB) http.HandlerFunc {
 			case QueueStatusClosed:
 				msg = "queue is closed"
 			}
-			writeJSON(w, http.StatusConflict, map[string]string{"error": msg})
+			httperr.Write(w, http.StatusConflict, "queue_unavailable", msg, nil)
 			return
 		}
 
-		// Insert entry with next position (atomic)
+		// Insert entry with next position (safe under the queue row lock).
 		var entryID, position int
 		var joinedAt string
-		err = db.QueryRowContext(r.Context(), `
+		err = tx.QueryRowContext(ctx, `
 			INSERT INTO queue_entries (queue_id, student_id, position, joined_at)
 			SELECT $1, $2, COALESCE(MAX(position), 0) + 1, NOW()
 			FROM queue_entries WHERE queue_id = $1
@@ -125,14 +122,18 @@ func Join(db *sql.DB) http.HandlerFunc {
 		`, queueID, claims.UserID).Scan(&entryID, &position, &joinedAt)
 		if err != nil {
 			if auth.IsUniqueViolation(err) {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "already in queue"})
+				httperr.Write(w, http.StatusConflict, "already_in_queue", "already in queue", nil)
 				return
 			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
-		// Notify subscribers that a student joined and the queue was updated.
+		if err := tx.Commit(); err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
+
 		DefaultHub.Publish(queueID, QueueEvent{
 			Type:    EventStudentJoined,
 			QueueID: queueID,
@@ -161,32 +162,26 @@ func Join(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// Leave handles POST /api/queues/{id}/leave. Student leaves the queue; requires auth.
+// Leave handles POST /api/queues/{id}/leave. Student leaves the queue.
+// Auth and role=student enforced by middleware.
 func Leave(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
+
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 
 		res, err := db.ExecContext(r.Context(), `DELETE FROM queue_entries WHERE queue_id = $1 AND student_id = $2`, queueID, claims.UserID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		rows, _ := res.RowsAffected()
 		if rows == 0 {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not in queue"})
+			httperr.Write(w, http.StatusNotFound, "not_in_queue", "not in queue", nil)
 			return
 		}
 
@@ -220,33 +215,21 @@ func Leave(db *sql.DB) http.HandlerFunc {
 // Next handles POST /api/queues/{id}/next.
 // It atomically removes the first student in the queue and returns them as "in session".
 // Uses row-level locking to avoid double-serving the same student under concurrent requests.
+// Auth and role=ta enforced by middleware.
 func Next(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can advance the queue"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 
 		ctx := r.Context()
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		defer tx.Rollback()
@@ -254,24 +237,26 @@ func Next(db *sql.DB) http.HandlerFunc {
 		// Lock the queue row so status/ownership cannot change mid-operation.
 		var status string
 		var taID int
+		var lastServed sql.NullTime
+		var prevServing sql.NullInt64
 		err = tx.QueryRowContext(ctx,
-			`SELECT ta_id, status FROM queues WHERE id = $1 FOR UPDATE`,
+			`SELECT ta_id, status, last_served_at, serving_student_id FROM queues WHERE id = $1 FOR UPDATE`,
 			queueID,
-		).Scan(&taID, &status)
+		).Scan(&taID, &status, &lastServed, &prevServing)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			httperr.Write(w, http.StatusNotFound, "queue_not_found", "queue not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if taID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can advance this queue"})
+			httperr.Write(w, http.StatusForbidden, "not_queue_owner", "only the owning TA can advance this queue", nil)
 			return
 		}
 		if QueueStatus(status) != QueueStatusOpen {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "queue is not open"})
+			httperr.Write(w, http.StatusConflict, "queue_not_open", "queue is not open", nil)
 			return
 		}
 
@@ -288,18 +273,18 @@ func Next(db *sql.DB) http.HandlerFunc {
 			LIMIT 1
 		`, queueID).Scan(&e.ID, &e.QueueID, &e.StudentID, &e.Position, &e.JoinedAt, &username)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue is empty"})
+			httperr.Write(w, http.StatusNotFound, "queue_empty", "queue is empty", map[string]int{"queue_id": queueID})
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		e.Username = username
 
 		// Remove that entry from the queue.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM queue_entries WHERE id = $1`, e.ID); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -311,14 +296,71 @@ func Next(db *sql.DB) http.HandlerFunc {
 				FROM queue_entries WHERE queue_id = $1
 			) t WHERE q.queue_id = $1 AND q.id = t.id
 		`, queueID); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
-		if err := tx.Commit(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+		var haveSessionDuration bool
+		var sessionEnd time.Time
+		var sessionDurationSec float64
+		if lastServed.Valid {
+			haveSessionDuration = true
+			sessionEnd = time.Now()
+			sessionDurationSec = sessionEnd.Sub(lastServed.Time).Seconds()
+		}
+
+		// Persist a completed help session: previous serving_student since last_served_at, ended now.
+		if lastServed.Valid && prevServing.Valid {
+			if err := sessionlog.InsertCompleted(ctx, tx, int(prevServing.Int64), taID, lastServed.Time, sessionEnd, sessionDurationSec); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+		}
+
+		// Record time between consecutive /next calls as a completed help session for rolling average duration
+		// (per queue and per owning TA). Track who is currently being helped for the next completion.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE queues SET
+				last_served_at = NOW(),
+				serving_student_id = $2,
+				session_sample_count = session_sample_count + CASE WHEN last_served_at IS NULL THEN 0 ELSE 1 END,
+				average_session_duration_seconds = CASE
+					WHEN last_served_at IS NULL THEN average_session_duration_seconds
+					WHEN session_sample_count = 0 THEN EXTRACT(EPOCH FROM (NOW() - last_served_at))
+					ELSE (average_session_duration_seconds * session_sample_count + EXTRACT(EPOCH FROM (NOW() - last_served_at))) / (session_sample_count + 1)
+				END
+			WHERE id = $1
+		`, queueID, e.StudentID); err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
+
+		if haveSessionDuration {
+			var ulock int
+			if err := tx.QueryRowContext(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, taID).Scan(&ulock); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE users SET
+					session_sample_count = session_sample_count + 1,
+					average_session_duration_seconds = CASE
+						WHEN session_sample_count = 0 THEN $2
+						ELSE (average_session_duration_seconds * session_sample_count + $2) / (session_sample_count + 1)
+					END
+				WHERE id = $1
+			`, taID, sessionDurationSec); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
+
+		log.Printf("queue next: queue_id=%d ta_id=%d dequeued_student_id=%d", queueID, claims.UserID, e.StudentID)
 
 		DefaultHub.Publish(queueID, QueueEvent{
 			Type:    EventStudentServed,
@@ -351,38 +393,26 @@ func UpdateStatus(db *sql.DB) http.HandlerFunc {
 	return updateQueueState(db, http.MethodPost)
 }
 
+// Auth and role=ta enforced by middleware.
 func updateQueueState(db *sql.DB, allowedMethod string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != allowedMethod {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can update queue status"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 
 		var req UpdateQueueStateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
 			return
 		}
 
 		newStatus := QueueStatus(req.Status)
 		if !newStatus.Valid() {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid status"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_status", "invalid status", nil)
 			return
 		}
 
@@ -390,21 +420,68 @@ func updateQueueState(db *sql.DB, allowedMethod string) http.HandlerFunc {
 		var previous string
 		err = db.QueryRowContext(r.Context(), `SELECT ta_id, status FROM queues WHERE id = $1`, queueID).Scan(&taID, &previous)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			httperr.Write(w, http.StatusNotFound, "queue_not_found", "queue not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if taID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can update this queue"})
+			httperr.Write(w, http.StatusForbidden, "not_queue_owner", "only the owning TA can update this queue", nil)
 			return
 		}
 
-		if _, err := db.ExecContext(r.Context(), `UPDATE queues SET status = $2 WHERE id = $1`, queueID, string(newStatus)); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+		fromStatus := QueueStatus(previous)
+		if !fromStatus.Valid() {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "invalid queue data", nil)
 			return
+		}
+		if !CanTransitionTo(fromStatus, newStatus) {
+			msg := `invalid state transition: from "` + string(fromStatus) + `" to "` + string(newStatus) + `"`
+			if fromStatus == QueueStatusClosed {
+				msg += `; reopen the queue to "open" first`
+			}
+			httperr.Write(w, http.StatusConflict, "invalid_state_transition", msg, map[string]any{
+				"from":    string(fromStatus),
+				"to":      string(newStatus),
+				"allowed": AllowedTargetStatuses(fromStatus),
+			})
+			return
+		}
+
+		if previous == string(newStatus) {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id":     queueID,
+				"status": string(newStatus),
+			})
+			return
+		}
+
+		ctx := r.Context()
+		if newStatus == QueueStatusClosed {
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+			defer tx.Rollback()
+			if err := applyClosedQueueFinalization(ctx, tx, queueID, claims.UserID); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+		} else {
+			if _, err := db.ExecContext(ctx, `UPDATE queues SET status = $2 WHERE id = $1`, queueID, string(newStatus)); err != nil {
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+				return
+			}
+		}
+		if newStatus == QueueStatusClosed {
+			PublishUpNextForQueue(ctx, db, queueID)
 		}
 
 		if previous != string(newStatus) {
@@ -432,56 +509,44 @@ func updateQueueState(db *sql.DB, allowedMethod string) http.HandlerFunc {
 const maxAnnouncementLen = 4000
 
 // PostAnnouncement handles POST /api/queues/{id}/announcement. TA owner posts a message; stored and broadcast.
+// Auth and role=ta enforced by middleware.
 func PostAnnouncement(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can send announcements"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 
 		var req PostAnnouncementRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
 			return
 		}
 		msg := strings.TrimSpace(req.Message)
 		if msg == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message is required"})
+			httperr.Write(w, http.StatusBadRequest, "message_required", "message is required", nil)
 			return
 		}
 		if len(msg) > maxAnnouncementLen {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message too long"})
+			httperr.Write(w, http.StatusBadRequest, "message_too_long", "message too long", nil)
 			return
 		}
 
 		var taID int
 		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM queues WHERE id = $1`, queueID).Scan(&taID)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			httperr.Write(w, http.StatusNotFound, "queue_not_found", "queue not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if taID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can announce on this queue"})
+			httperr.Write(w, http.StatusForbidden, "not_queue_owner", "only the owning TA can announce on this queue", nil)
 			return
 		}
 
@@ -493,7 +558,7 @@ func PostAnnouncement(db *sql.DB) http.HandlerFunc {
 			RETURNING id, created_at::text
 		`, queueID, claims.UserID, msg).Scan(&annID, &createdAt)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -523,38 +588,42 @@ func PostAnnouncement(db *sql.DB) http.HandlerFunc {
 
 // Entry is one queue entry for API response.
 type Entry struct {
-	ID        int    `json:"id"`
-	QueueID   int    `json:"queue_id"`
-	StudentID int    `json:"student_id"`
-	Position  int    `json:"position"`
-	JoinedAt  string `json:"joined_at"`
-	Username  string `json:"username,omitempty"`
+	ID                   int    `json:"id"`
+	QueueID              int    `json:"queue_id"`
+	StudentID            int    `json:"student_id"`
+	Position             int    `json:"position"`
+	JoinedAt             string `json:"joined_at"`
+	Username             string `json:"username,omitempty"`
+	EstimatedWaitSeconds int64  `json:"estimated_wait_seconds"`
 }
 
-// GetQueue handles GET /api/queues/{id}. Returns queue metadata.
+// GetQueue handles GET /api/queues/{id}. Returns queue metadata (public).
 func GetQueue(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 
 		var id, courseID, taID int
 		var status, createdAt string
-		err = db.QueryRowContext(r.Context(),
-			`SELECT id, course_id, ta_id, status, created_at::text FROM queues WHERE id = $1`,
-			queueID).Scan(&id, &courseID, &taID, &status, &createdAt)
+		var qAvg, taAvg float64
+		var qN, taN int
+		err = db.QueryRowContext(r.Context(), `
+			SELECT q.id, q.course_id, q.ta_id, q.status, q.created_at::text,
+				q.average_session_duration_seconds, q.session_sample_count,
+				u.average_session_duration_seconds, u.session_sample_count
+			FROM queues q
+			JOIN users u ON u.id = q.ta_id
+			WHERE q.id = $1
+		`, queueID).Scan(&id, &courseID, &taID, &status, &createdAt, &qAvg, &qN, &taAvg, &taN)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "queue not found"})
+			httperr.Write(w, http.StatusNotFound, "queue_not_found", "queue not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -567,7 +636,7 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 			ORDER BY qe.position ASC, qe.joined_at ASC
 		`, queueID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		defer rows.Close()
@@ -577,7 +646,7 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 			var e Entry
 			var username string
 			if err := rows.Scan(&e.ID, &e.QueueID, &e.StudentID, &e.Position, &e.JoinedAt, &username); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 				return
 			}
 			e.Username = username
@@ -589,47 +658,40 @@ func GetQueue(db *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id":         id,
-			"course_id":  courseID,
-			"ta_id":      taID,
-			"status":     status,
-			"created_at": createdAt,
-			"entries":    entries,
-		})
+		_ = json.NewEncoder(w).Encode(queueStateJSON(id, courseID, taID, status, createdAt, entries, qAvg, qN, taAvg, taN))
 	}
 }
 
 // GetActiveQueueByCourse handles GET /api/queues/active?course_id={id}.
-// Returns the latest open queue for a course, including entries.
+// Returns the latest open queue for a course, including entries (public).
 func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
 		courseID, err := parseCourseIDFromQuery(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
 			return
 		}
 
-		var id, taID int
+		var id, qCourseID, taID int
 		var status, createdAt string
+		var qAvg, taAvg float64
+		var qN, taN int
 		err = db.QueryRowContext(r.Context(), `
-			SELECT id, ta_id, status, created_at::text
-			FROM queues
-			WHERE course_id = $1 AND status = 'open'
-			ORDER BY created_at DESC
+			SELECT q.id, q.course_id, q.ta_id, q.status, q.created_at::text,
+				q.average_session_duration_seconds, q.session_sample_count,
+				u.average_session_duration_seconds, u.session_sample_count
+			FROM queues q
+			JOIN users u ON u.id = q.ta_id
+			WHERE q.course_id = $1 AND q.status = 'open'
+			ORDER BY q.created_at DESC
 			LIMIT 1
-		`, courseID).Scan(&id, &taID, &status, &createdAt)
+		`, courseID).Scan(&id, &qCourseID, &taID, &status, &createdAt, &qAvg, &qN, &taAvg, &taN)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active queue for course"})
+			httperr.Write(w, http.StatusNotFound, "no_active_queue", "no active queue for course", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -641,7 +703,7 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 			ORDER BY qe.position ASC, qe.joined_at ASC
 		`, id)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		defer rows.Close()
@@ -651,7 +713,7 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 			var e Entry
 			var username string
 			if err := rows.Scan(&e.ID, &e.QueueID, &e.StudentID, &e.Position, &e.JoinedAt, &username); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 				return
 			}
 			e.Username = username
@@ -661,14 +723,7 @@ func GetActiveQueueByCourse(db *sql.DB) http.HandlerFunc {
 			entries = []Entry{}
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id":         id,
-			"course_id":  courseID,
-			"ta_id":      taID,
-			"status":     status,
-			"created_at": createdAt,
-			"entries":    entries,
-		})
+		writeJSON(w, http.StatusOK, queueStateJSON(id, qCourseID, taID, status, createdAt, entries, qAvg, qN, taAvg, taN))
 	}
 }
 

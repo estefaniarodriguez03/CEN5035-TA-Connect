@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"backend/internal/auth"
+	"backend/internal/httperr"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -24,46 +25,34 @@ type CreateOfficeHourRequest struct {
 }
 
 // Create handles POST /api/office-hours. TA-only; rejects overlapping slots for the same TA and day.
+// Auth and role=ta enforced by middleware.
 func Create(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can create office hours"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		var req CreateOfficeHourRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
 			return
 		}
 
 		if req.DayOfWeek < 0 || req.DayOfWeek > 6 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "day_of_week must be 0-6 (Sunday-Saturday)"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_day_of_week", "day_of_week must be 0-6 (Sunday-Saturday)", nil)
 			return
 		}
 
 		startClock, err := parseClock(req.StartTime)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid start_time"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_start_time", "invalid start_time", nil)
 			return
 		}
 		endClock, err := parseClock(req.EndTime)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid end_time"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_end_time", "invalid end_time", nil)
 			return
 		}
 		if !startClock.Before(endClock) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "start_time must be before end_time"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_time_range", "start_time must be before end_time", nil)
 			return
 		}
 
@@ -76,11 +65,11 @@ func Create(db *sql.DB) http.HandlerFunc {
 			)
 		`, claims.UserID, req.DayOfWeek, startClock.Format("15:04:05"), endClock.Format("15:04:05")).Scan(&overlaps)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if overlaps {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "overlapping office hour"})
+			httperr.Write(w, http.StatusConflict, "office_hour_overlap", "overlapping office hour", nil)
 			return
 		}
 
@@ -92,7 +81,7 @@ func Create(db *sql.DB) http.HandlerFunc {
 			RETURNING id, start_time::text, end_time::text
 		`, claims.UserID, req.CourseID, req.DayOfWeek, startClock.Format("15:04:05"), endClock.Format("15:04:05"), strings.TrimSpace(req.Location)).Scan(&id, &startOut, &endOut)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -111,67 +100,55 @@ func Create(db *sql.DB) http.HandlerFunc {
 }
 
 // Update handles PUT /api/office-hours/{id}. TA-only; owning TA only; rejects overlaps with other slots on the same day.
+// Auth and role=ta enforced by middleware.
 func Update(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can update office hours"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		id, err := parseOfficeHourID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid office hour id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_office_hour_id", "invalid office hour id", nil)
 			return
 		}
 
 		var ownerID int
 		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM office_hours WHERE id = $1`, id).Scan(&ownerID)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			httperr.Write(w, http.StatusNotFound, "office_hour_not_found", "office hour not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if ownerID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can update this office hour"})
+			httperr.Write(w, http.StatusForbidden, "not_resource_owner", "only the owning TA can update this office hour", nil)
 			return
 		}
 
 		var req CreateOfficeHourRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
 			return
 		}
 
 		if req.DayOfWeek < 0 || req.DayOfWeek > 6 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "day_of_week must be 0-6 (Sunday-Saturday)"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_day_of_week", "day_of_week must be 0-6 (Sunday-Saturday)", nil)
 			return
 		}
 
 		startClock, err := parseClock(req.StartTime)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid start_time"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_start_time", "invalid start_time", nil)
 			return
 		}
 		endClock, err := parseClock(req.EndTime)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid end_time"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_end_time", "invalid end_time", nil)
 			return
 		}
 		if !startClock.Before(endClock) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "start_time must be before end_time"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_time_range", "start_time must be before end_time", nil)
 			return
 		}
 
@@ -187,11 +164,11 @@ func Update(db *sql.DB) http.HandlerFunc {
 			)
 		`, claims.UserID, req.DayOfWeek, startStr, endStr, id).Scan(&overlaps)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if overlaps {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "overlapping office hour"})
+			httperr.Write(w, http.StatusConflict, "office_hour_overlap", "overlapping office hour", nil)
 			return
 		}
 
@@ -203,11 +180,11 @@ func Update(db *sql.DB) http.HandlerFunc {
 			RETURNING start_time::text, end_time::text
 		`, id, req.CourseID, req.DayOfWeek, startStr, endStr, strings.TrimSpace(req.Location)).Scan(&startOut, &endOut)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			httperr.Write(w, http.StatusNotFound, "office_hour_not_found", "office hour not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -224,52 +201,40 @@ func Update(db *sql.DB) http.HandlerFunc {
 }
 
 // Delete handles DELETE /api/office-hours/{id}. TA-only; owning TA only.
+// Auth and role=ta enforced by middleware.
 func Delete(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
-		claims, err := auth.GetClaimsFromRequest(r)
-		if err != nil || claims == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authorization required"})
-			return
-		}
-		if claims.Role != "ta" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only TAs can delete office hours"})
-			return
-		}
+		claims := auth.ClaimsFromContext(r.Context())
 
 		id, err := parseOfficeHourID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid office hour id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_office_hour_id", "invalid office hour id", nil)
 			return
 		}
 
 		var ownerID int
 		err = db.QueryRowContext(r.Context(), `SELECT ta_id FROM office_hours WHERE id = $1`, id).Scan(&ownerID)
 		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			httperr.Write(w, http.StatusNotFound, "office_hour_not_found", "office hour not found", nil)
 			return
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		if ownerID != claims.UserID {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the owning TA can delete this office hour"})
+			httperr.Write(w, http.StatusForbidden, "not_resource_owner", "only the owning TA can delete this office hour", nil)
 			return
 		}
 
 		res, err := db.ExecContext(r.Context(), `DELETE FROM office_hours WHERE id = $1`, id)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		n, err := res.RowsAffected()
 		if err != nil || n == 0 {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "office hour not found"})
+			httperr.Write(w, http.StatusNotFound, "office_hour_not_found", "office hour not found", nil)
 			return
 		}
 
@@ -280,19 +245,14 @@ func Delete(db *sql.DB) http.HandlerFunc {
 // ListByTA handles GET /api/office-hours/ta/{ta_id}. Public; returns all office hours for that TA, ordered by day then start time.
 func ListByTA(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
 		s := chi.URLParam(r, "ta_id")
 		if s == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ta id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_ta_id", "invalid ta id", nil)
 			return
 		}
 		taID, err := strconv.Atoi(s)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid ta id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_ta_id", "invalid ta id", nil)
 			return
 		}
 
@@ -303,7 +263,7 @@ func ListByTA(db *sql.DB) http.HandlerFunc {
 			ORDER BY day_of_week ASC, start_time ASC
 		`, taID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		defer rows.Close()
@@ -313,7 +273,7 @@ func ListByTA(db *sql.DB) http.HandlerFunc {
 			var oh OfficeHour
 			var startOut, endOut string
 			if err := rows.Scan(&oh.ID, &oh.TAID, &oh.CourseID, &oh.DayOfWeek, &startOut, &endOut, &oh.Location); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 				return
 			}
 			oh.StartTime = trimTimeSuffix(startOut)
@@ -321,7 +281,7 @@ func ListByTA(db *sql.DB) http.HandlerFunc {
 			list = append(list, oh)
 		}
 		if err := rows.Err(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 
@@ -334,19 +294,14 @@ func ListByTA(db *sql.DB) http.HandlerFunc {
 // ListByCourse handles GET /api/office-hours/course/{course_id}. Public; returns all office hours for that course, ordered by day, start time, then TA.
 func ListByCourse(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-
 		s := chi.URLParam(r, "course_id")
 		if s == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
 			return
 		}
 		courseID, err := strconv.Atoi(s)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid course id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
 			return
 		}
 
@@ -357,7 +312,7 @@ func ListByCourse(db *sql.DB) http.HandlerFunc {
 			ORDER BY day_of_week ASC, start_time ASC, ta_id ASC
 		`, courseID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 		defer rows.Close()
@@ -367,7 +322,7 @@ func ListByCourse(db *sql.DB) http.HandlerFunc {
 			var oh OfficeHour
 			var startOut, endOut string
 			if err := rows.Scan(&oh.ID, &oh.TAID, &oh.CourseID, &oh.DayOfWeek, &startOut, &endOut, &oh.Location); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 				return
 			}
 			oh.StartTime = trimTimeSuffix(startOut)
@@ -375,7 +330,7 @@ func ListByCourse(db *sql.DB) http.HandlerFunc {
 			list = append(list, oh)
 		}
 		if err := rows.Err(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "database error"})
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
 			return
 		}
 

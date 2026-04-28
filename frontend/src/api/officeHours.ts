@@ -1,3 +1,5 @@
+import { readApiErrorMessage } from './errors';
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 export interface OfficeHour {
@@ -19,7 +21,7 @@ export interface CreateOfficeHourPayload {
 }
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token') ?? localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -32,7 +34,7 @@ export async function getOfficeHoursByTA(taId: number): Promise<OfficeHour[]> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? 'Failed to fetch office hours');
+    throw new Error(readApiErrorMessage(err, 'Failed to fetch office hours'));
   }
   return res.json();
 }
@@ -45,7 +47,7 @@ export async function createOfficeHour(payload: CreateOfficeHourPayload): Promis
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? 'Failed to create office hour');
+    throw new Error(readApiErrorMessage(err, 'Failed to create office hour'));
   }
   return res.json();
 }
@@ -58,7 +60,7 @@ export async function updateOfficeHour(id: number, payload: CreateOfficeHourPayl
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? 'Failed to update office hour');
+    throw new Error(readApiErrorMessage(err, 'Failed to update office hour'));
   }
   return res.json();
 }
@@ -70,6 +72,6 @@ export async function deleteOfficeHour(id: number): Promise<void> {
   });
   if (!res.ok && res.status !== 204) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? 'Failed to delete office hour');
+    throw new Error(readApiErrorMessage(err, 'Failed to delete office hour'));
   }
 }

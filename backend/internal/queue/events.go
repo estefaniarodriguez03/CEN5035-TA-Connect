@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+
+	"backend/internal/httperr"
 )
 
 type EventType string
@@ -102,7 +104,7 @@ func StreamQueueEvents(hub *Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		queueID, err := parseQueueID(r)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid queue id"})
+			httperr.Write(w, http.StatusBadRequest, "invalid_queue_id", "invalid queue id", nil)
 			return
 		}
 

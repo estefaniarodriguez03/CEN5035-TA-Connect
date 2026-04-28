@@ -7,7 +7,15 @@ import whiteProfileIcon from "../images/White Profile Icon.png";
 import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
-import { getActiveQueueForOfficeHour, joinQueue, leaveQueue, getQueueOrNull, subscribeToQueueEvents } from "../api/queue";
+import {
+  getActiveQueueForOfficeHour,
+  joinQueue,
+  leaveQueue,
+  getQueueOrNull,
+  subscribeToQueueEvents,
+  browseWaitDisplay,
+  myWaitMinutesFromEntry,
+} from "../api/queue";
 import type { QueueEvent, QueueStateChangePayload, StudentUpNextPayload, AnnouncementSentPayload, SessionStartedPayload } from "../api/queue";
 
 interface TAHour {
@@ -57,6 +65,8 @@ export default function StudentDashboard() {
   const [timeJoined, setTimeJoined] = useState<string>("");
   const [studentPosition, setStudentPosition] = useState<number | null>(null);
   const [waitTime, setWaitTime] = useState("0 minutes");
+  const [waitTimeSub, setWaitTimeSub] = useState("Select a course to see the queue");
+  const [inQueueWaitMinutes, setInQueueWaitMinutes] = useState(0);
   const [queueStudentCount, setQueueStudentCount] = useState(0);
   const [joinedQueueID, setJoinedQueueID] = useState<number | null>(null);
   const [queueStatusForCourse, setQueueStatusForCourse] = useState<string | null>(null);
@@ -97,7 +107,9 @@ export default function StudentDashboard() {
       try {
         if (!selectedCourseOption) {
           setQueueStudentCount(0);
-          setWaitTime("0 minutes");
+          setWaitTime("—");
+          setWaitTimeSub("Select a course to see the queue");
+          setInQueueWaitMinutes(0);
           setStudentPosition(null);
           setQueueStatusForCourse(null);
           return;
@@ -109,7 +121,9 @@ export default function StudentDashboard() {
 
         if (!resolvedQueueID) {
           setQueueStudentCount(0);
-          setWaitTime("0 minutes");
+          setWaitTime("—");
+          setWaitTimeSub("No queue is linked to this time slot. Your TA will open a queue when office hours start.");
+          setInQueueWaitMinutes(0);
           setStudentPosition(null);
           setQueueStatusForCourse(null);
           return;
@@ -118,7 +132,9 @@ export default function StudentDashboard() {
         const data = await getQueueOrNull(resolvedQueueID);
         if (!data) {
           setQueueStudentCount(0);
-          setWaitTime("0 minutes");
+          setWaitTime("—");
+          setWaitTimeSub("Queue is unavailable or no longer exists");
+          setInQueueWaitMinutes(0);
           setStudentPosition(null);
           setQueueStatusForCourse(null);
           if (isInQueue) {
@@ -129,23 +145,25 @@ export default function StudentDashboard() {
         }
         setQueueStatusForCourse(data.status);
         setQueueStudentCount(data.entries.length);
-        
-        // Calculate wait time: each student = 4 minutes
-        const estimatedWait = data.entries.length * 4;
-        setWaitTime(estimatedWait === 0 ? "0 minutes" : `${estimatedWait} minutes`);
+        const display = browseWaitDisplay(data);
+        setWaitTime(display.line);
+        setWaitTimeSub(display.sub);
 
-        // Find current student's position if they're in queue
         if (isInQueue) {
           const currentStudent = data.entries.find(
             (entry) => entry.student_id === user?.id
           );
           if (currentStudent) {
             setStudentPosition(currentStudent.position);
+            setInQueueWaitMinutes(myWaitMinutesFromEntry(currentStudent));
           } else {
             setStudentPosition(null);
+            setInQueueWaitMinutes(0);
             setIsInQueue(false);
             setJoinedQueueID(null);
           }
+        } else {
+          setInQueueWaitMinutes(0);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to load queue data";
@@ -193,23 +211,27 @@ export default function StudentDashboard() {
         const data = await getQueueOrNull(joinedQueueID);
         if (!data) {
           setQueueStudentCount(0);
-          setWaitTime("0 minutes");
+          setWaitTime("—");
+          setWaitTimeSub("Queue is unavailable or no longer exists");
+          setInQueueWaitMinutes(0);
           setStudentPosition(null);
           setIsInQueue(false);
           return;
         }
         setQueueStudentCount(data.entries.length);
-        
-        const estimatedWait = data.entries.length * 4;
-        setWaitTime(estimatedWait === 0 ? "0 minutes" : `${estimatedWait} minutes`);
+        const d = browseWaitDisplay(data);
+        setWaitTime(d.line);
+        setWaitTimeSub(d.sub);
 
         const currentStudent = data.entries.find(
           (entry) => entry.student_id === user?.id
         );
         if (currentStudent) {
           setStudentPosition(currentStudent.position);
+          setInQueueWaitMinutes(myWaitMinutesFromEntry(currentStudent));
         } else {
           setStudentPosition(null);
+          setInQueueWaitMinutes(0);
           setIsInQueue(false);
           setJoinedQueueID(null);
         }
@@ -287,7 +309,9 @@ export default function StudentDashboard() {
         const data = await getQueueOrNull(joinedQueueID);
         if (!data) {
           setQueueStudentCount(0);
-          setWaitTime("0 minutes");
+          setWaitTime("—");
+          setWaitTimeSub("Queue is unavailable or no longer exists");
+          setInQueueWaitMinutes(0);
           setStudentPosition(null);
           setIsInQueue(false);
           setJoinedQueueID(null);
@@ -295,14 +319,17 @@ export default function StudentDashboard() {
         }
 
         setQueueStudentCount(data.entries.length);
-        const estimatedWait = data.entries.length * 4;
-        setWaitTime(estimatedWait === 0 ? "0 minutes" : `${estimatedWait} minutes`);
+        const pol = browseWaitDisplay(data);
+        setWaitTime(pol.line);
+        setWaitTimeSub(pol.sub);
 
         const currentStudent = data.entries.find((entry) => entry.student_id === user?.id);
         if (currentStudent) {
           setStudentPosition(currentStudent.position);
+          setInQueueWaitMinutes(myWaitMinutesFromEntry(currentStudent));
         } else {
           setStudentPosition(null);
+          setInQueueWaitMinutes(0);
           setIsInQueue(false);
           setJoinedQueueID(null);
         }
@@ -491,7 +518,7 @@ export default function StudentDashboard() {
                 <span className="wait-time-label">Estimated Wait Time</span>
               </div>
               <div className="wait-time-value">{waitTime}</div>
-              <div className="wait-time-info">Based on {queueStudentCount} student{queueStudentCount !== 1 ? "s" : ""} currently in queue</div>
+              <div className="wait-time-info">{waitTimeSub}</div>
             </div>
 
             {/* Queue Status Banner */}
@@ -576,7 +603,7 @@ export default function StudentDashboard() {
 
               <div className="queue-card wait-time-card-alt">
                 <div className="card-label">Est. Wait Time</div>
-                <div className="card-value wait-value">{studentPosition && studentPosition > 0 ? studentPosition * 4 : 0}</div>
+                <div className="card-value wait-value">{inQueueWaitMinutes}</div>
                 <div className="card-subtext">minutes remaining</div>
               </div>
             </div>

@@ -4,14 +4,16 @@ import "database/sql"
 
 // Migrate ensures required database tables exist.
 func Migrate(db *sql.DB) error {
-	const query = `
+	const createQuery = `
 CREATE TABLE IF NOT EXISTS users (
 	id SERIAL PRIMARY KEY,
 	username TEXT NOT NULL UNIQUE,
 	email TEXT NOT NULL UNIQUE,
 	password TEXT NOT NULL,
 	classcode TEXT[] NOT NULL DEFAULT '{}',
-	role TEXT NOT NULL
+	role TEXT NOT NULL,
+	average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+	session_sample_count INT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS queues (
@@ -19,7 +21,10 @@ CREATE TABLE IF NOT EXISTS queues (
 	course_id INT NOT NULL DEFAULT 0,
 	ta_id INT NOT NULL REFERENCES users(id),
 	status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paused', 'closed')),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+	session_sample_count INT NOT NULL DEFAULT 0,
+	last_served_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS queue_entries (
@@ -73,7 +78,35 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_queue_started ON sessions(queue_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_ta ON sessions(ta_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_student ON sessions(student_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS session_logs (
+	id SERIAL PRIMARY KEY,
+	student_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	ta_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	start_time TIMESTAMPTZ NOT NULL,
+	end_time TIMESTAMPTZ NOT NULL,
+	duration_seconds DOUBLE PRECISION NOT NULL,
+	CHECK (end_time >= start_time),
+	CHECK (duration_seconds >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_logs_ta_id ON session_logs(ta_id);
+CREATE INDEX IF NOT EXISTS idx_session_logs_student_id ON session_logs(student_id);
+CREATE INDEX IF NOT EXISTS idx_session_logs_start_time ON session_logs(start_time DESC);
 `
-	_, err := db.Exec(query)
+	_, err := db.Exec(createQuery)
+	if err != nil {
+		return err
+	}
+	// Idempotent column adds for existing deployments created before these fields.
+	const alter = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS last_served_at TIMESTAMPTZ;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS serving_student_id INT REFERENCES users(id) ON DELETE SET NULL;
+`
+	_, err = db.Exec(alter)
 	return err
 }

@@ -64,6 +64,51 @@
     .state-actions button.state-open { background: #d4edda; }
     .state-actions button.state-paused { background: #fff3cd; }
     .state-actions button.state-closed { background: #f8d7da; }
+
+    .error-banner {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      display: none;
+      font-family: monospace;
+      font-size: 0.9em;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .error-banner.unauthorized { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; }
+    .error-banner.forbidden { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+    .error-banner .code-tag {
+      display: inline-block;
+      background: rgba(0, 0, 0, 0.08);
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-right: 6px;
+      font-weight: 600;
+    }
+
+    .concurrent-demo {
+      border: 1px solid #c3d4ff;
+      background: #f5f8ff;
+      padding: 10px;
+      margin: 8px 0;
+    }
+    .concurrent-demo label { display: inline-block; margin-right: 10px; }
+    .concurrent-demo input { width: 80px; }
+    .concurrent-demo .result-grid {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: auto auto auto 1fr;
+      gap: 4px 12px;
+      font-family: monospace;
+      font-size: 0.85em;
+    }
+    .concurrent-demo .result-grid > .hdr {
+      font-weight: 600;
+      border-bottom: 1px solid #aaa;
+      padding-bottom: 2px;
+    }
+    .concurrent-demo .ok { color: #155724; }
+    .concurrent-demo .err { color: #721c24; }
   </style>
 </head>
 <body>
@@ -88,6 +133,29 @@
     <strong>Open</strong> — students may join. <strong>Paused</strong> / <strong>Closed</strong> — join returns 409
     (<code>queue is paused</code> / <code>queue is closed</code>). TAs change state with PATCH below.
   </p>
+
+  <div id="lastAuthError" class="error-banner"></div>
+
+  <details style="margin-top:10px;">
+    <summary><strong>Role-based access (auth middleware)</strong></summary>
+    <p class="notif-hint" style="margin-top:6px;">
+      Every protected route runs through two middlewares: <code>RequireAuth</code> (validates the Bearer token)
+      and <code>RequireRole(...)</code>. Failures return structured JSON.
+    </p>
+    <ul class="notif-hint" style="margin-top:4px;">
+      <li><strong>401</strong> (no/invalid token): <code>{"error":"...","code":"auth_required"}</code></li>
+      <li><strong>403</strong> (wrong role): <code>{"error":"...","code":"role_forbidden","required_role":"ta"}</code></li>
+      <li><strong>403</strong> (not the resource owner): <code>{"error":"...","code":"not_queue_owner"}</code> or <code>"not_resource_owner"</code></li>
+    </ul>
+    <ul class="notif-hint">
+      <li><strong>TA-only routes:</strong> <code>POST /api/queues</code>, <code>PATCH /api/queues/:id/state</code>,
+        <code>POST /api/queues/:id/next</code>, <code>POST /api/queues/:id/announcement</code>,
+        <code>POST|PUT|DELETE /api/office-hours[/:id]</code></li>
+      <li><strong>Student-only routes:</strong> <code>POST /api/queues/:id/join</code>, <code>POST /api/queues/:id/leave</code></li>
+      <li><strong>Public:</strong> <code>GET /api/queues/:id</code>, <code>GET /api/queues/active</code>,
+        <code>GET /api/queues/:id/events</code> (SSE), <code>GET /api/office-hours/...</code></li>
+    </ul>
+  </details>
 
   <h3>Auth: Register / Login</h3>
 
@@ -186,6 +254,28 @@
     <button onclick="leaveQueue()">POST /leave</button>
     <button onclick="nextStudent()">POST /next</button>
   </div>
+  <p class="notif-hint">
+    Join/leave are <strong>student-only</strong> — calling them with a TA token will produce a structured 403
+    with <code>code: "role_forbidden"</code> and <code>required_role: "student"</code> (shown in the red banner above).
+    A second join by the same student hits the <code>UNIQUE(queue_id, student_id)</code> DB constraint and returns
+    409 <code>"already in queue"</code>.
+  </p>
+
+  <h3>Concurrent-join stress test</h3>
+  <div class="concurrent-demo">
+    <p class="notif-hint" style="margin-top:0;">
+      Registers N fresh students and fires their <code>POST /join</code> requests in parallel against the current
+      Queue ID. Thanks to the DB transaction + <code>SELECT ... FOR UPDATE</code> on the queue row, every
+      student gets a <strong>unique, contiguous position</strong> (1..N) even when requests race.
+    </p>
+    <label>Students:
+      <input id="concurrentCount" type="number" min="2" max="50" value="10">
+    </label>
+    <button onclick="runConcurrentJoinDemo()">Run concurrent join demo</button>
+    <button onclick="clearConcurrentResults()">Clear results</button>
+    <div id="concurrentSummary" style="margin-top:8px; font-weight:600;"></div>
+    <div id="concurrentResults" class="result-grid" style="display:none;"></div>
+  </div>
 
   <h3>Notifications: announcement API</h3>
   <div style="border:1px solid #ddd; padding:8px; margin-bottom:8px;">
@@ -231,6 +321,63 @@
       }
     }
 
+    /**
+     * Show a structured 401/403 response in the red banner.
+     * Accepts status code + parsed JSON body (may be null).
+     */
+    function renderAuthError(status, bodyJson, url) {
+      const banner = document.getElementById('lastAuthError');
+      if (status !== 401 && status !== 403) {
+        banner.style.display = 'none';
+        banner.textContent = '';
+        return;
+      }
+      const cls = status === 401 ? 'unauthorized' : 'forbidden';
+      banner.className = 'error-banner ' + cls;
+      banner.style.display = 'block';
+
+      const code = bodyJson && bodyJson.code ? bodyJson.code : '(no code)';
+      const required = bodyJson && bodyJson.required_role ? ` required_role=${bodyJson.required_role}` : '';
+      const errMsg = bodyJson && bodyJson.error ? bodyJson.error : '(no error message)';
+      banner.innerHTML =
+        `<span class="code-tag">HTTP ${status}</span>` +
+        `<span class="code-tag">code: ${escapeHTML(code)}</span>` +
+        (required ? `<span class="code-tag">${escapeHTML(required.trim())}</span>` : '') +
+        `\n${escapeHTML(url || '')}\n${escapeHTML(errMsg)}`;
+    }
+
+    function clearAuthError() {
+      const banner = document.getElementById('lastAuthError');
+      banner.style.display = 'none';
+      banner.textContent = '';
+    }
+
+    function escapeHTML(s) {
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    /**
+     * fetch + log + surface structured auth errors.
+     * Returns { status, text, json } where json is null if parsing fails.
+     */
+    async function fetchLogged(url, opts) {
+      log(`${(opts && opts.method) || 'GET'} ${url}`);
+      const res = await fetch(url, opts);
+      const text = await res.text();
+      log(`→ ${res.status} ${res.statusText}: ${text}`);
+      let json = null;
+      try { json = JSON.parse(text); } catch { /* not json */ }
+      if (res.status === 401 || res.status === 403) {
+        renderAuthError(res.status, json, url);
+      } else if (res.ok) {
+        clearAuthError();
+      }
+      return { status: res.status, ok: res.ok, text, json };
+    }
+
     function getBaseInfo() {
       const backend = document.getElementById('backendUrl').value.replace(/\/+$/, '');
       const queueId = document.getElementById('queueId').value.trim();
@@ -261,17 +408,11 @@
         return;
       }
       const url = `${backend}/api/queues/${queueId}`;
-      log(`GET ${url}`);
       try {
-        const res = await fetch(url);
-        const text = await res.text();
-        log(`→ ${res.status} ${res.statusText}: ${text}`);
-        if (res.ok) {
-          const data = JSON.parse(text);
-          if (data.status) {
-            updateQueueStateUI(data.status);
-          }
-        } else {
+        const res = await fetchLogged(url);
+        if (res.ok && res.json && res.json.status) {
+          updateQueueStateUI(res.json.status);
+        } else if (!res.ok) {
           updateQueueStateUI(null);
         }
       } catch (err) {
@@ -293,20 +434,14 @@
       } else {
         log('Warning: PATCH /state without token will fail (TA required).');
       }
-      log(`PATCH ${url}  body: {"status":"${status}"}`);
       try {
-        const res = await fetch(url, {
+        const res = await fetchLogged(url, {
           method: 'PATCH',
           headers,
           body: JSON.stringify({ status }),
         });
-        const text = await res.text();
-        log(`→ ${res.status} ${res.statusText}: ${text}`);
-        if (res.ok) {
-          const data = JSON.parse(text);
-          if (data.status) {
-            updateQueueStateUI(data.status);
-          }
+        if (res.ok && res.json && res.json.status) {
+          updateQueueStateUI(res.json.status);
         }
       } catch (err) {
         log(`PATCH state error: ${err}`);
@@ -454,26 +589,16 @@
         log('Warning: creating queue without Authorization header will likely fail (TA auth required).');
       }
 
-      log(`POST ${url}`);
       try {
-        const res = await fetch(url, {
+        const res = await fetchLogged(url, {
           method: 'POST',
           headers,
           body: JSON.stringify({ course_id: courseId }),
         });
-        const text = await res.text();
-        log(`→ ${res.status} ${res.statusText}: ${text}`);
-        if (res.ok) {
-          const data = JSON.parse(text);
-          if (data.id) {
-            document.getElementById('queueId').value = data.id;
-            log(`Set Queue ID input to new queue id ${data.id}`);
-            if (data.status) {
-              updateQueueStateUI(data.status);
-            } else {
-              updateQueueStateUI('open');
-            }
-          }
+        if (res.ok && res.json && res.json.id) {
+          document.getElementById('queueId').value = res.json.id;
+          log(`Set Queue ID input to new queue id ${res.json.id}`);
+          updateQueueStateUI(res.json.status || 'open');
         }
       } catch (err) {
         log(`Create queue error: ${err}`);
@@ -545,15 +670,12 @@
         headers['Authorization'] = 'Bearer ' + token;
       }
 
-      log(`POST ${url}`);
       try {
-        const res = await fetch(url, {
+        await fetchLogged(url, {
           method: 'POST',
           headers,
           body: action === 'join' ? '{}' : null,
         });
-        const text = await res.text();
-        log(`→ ${res.status} ${res.statusText}: ${text}`);
       } catch (err) {
         log(`Request error: ${err}`);
       }
@@ -580,21 +702,125 @@
       if (token) {
         headers['Authorization'] = 'Bearer ' + token;
       }
-      log(`POST ${url}`);
       try {
-        const res = await fetch(url, {
+        await fetchLogged(url, {
           method: 'POST',
           headers,
           body: JSON.stringify({ message }),
         });
-        const text = await res.text();
-        log(`→ ${res.status} ${res.statusText}: ${text}`);
       } catch (err) {
         log(`Announcement error: ${err}`);
       }
     }
 
-    // initial
+    /**
+     * Register N fresh students, then POST /join concurrently for all of them.
+     * Demonstrates that the transactional join handler hands out unique contiguous positions.
+     */
+    async function runConcurrentJoinDemo() {
+      const { backend, queueId } = getBaseInfo();
+      if (!queueId) {
+        alert('Enter a Queue ID first (create one as a TA).');
+        return;
+      }
+      const n = Math.max(2, Math.min(50, parseInt(document.getElementById('concurrentCount').value, 10) || 10));
+      const summary = document.getElementById('concurrentSummary');
+      const grid = document.getElementById('concurrentResults');
+      summary.textContent = `Running: registering ${n} students...`;
+      grid.style.display = 'none';
+      grid.innerHTML = '';
+
+      const batchID = Date.now();
+      const students = [];
+      for (let i = 0; i < n; i++) {
+        const email = `concdemo_${batchID}_${i}@example.com`;
+        const payload = {
+          username: `concdemo_${batchID}_${i}`,
+          email,
+          password: 'pw',
+          role: 'student',
+        };
+        try {
+          const res = await fetch(`${backend}/api/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            summary.textContent = `Failed to register student ${i}: ${res.status} ${t}`;
+            return;
+          }
+          const j = await res.json();
+          students.push({ i, email, token: j.token });
+        } catch (err) {
+          summary.textContent = `Register student ${i} network error: ${err}`;
+          return;
+        }
+      }
+
+      summary.textContent = `Firing ${n} concurrent POST /join requests...`;
+      const t0 = performance.now();
+      const results = await Promise.all(students.map(async (s) => {
+        const start = performance.now();
+        try {
+          const res = await fetch(`${backend}/api/queues/${queueId}/join`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + s.token,
+            },
+            body: '{}',
+          });
+          const text = await res.text();
+          let json = null;
+          try { json = JSON.parse(text); } catch { /* ignore */ }
+          const dur = performance.now() - start;
+          return { ...s, status: res.status, ok: res.ok, json, text, dur };
+        } catch (err) {
+          return { ...s, status: 0, ok: false, json: null, text: String(err), dur: performance.now() - start };
+        }
+      }));
+      const elapsed = (performance.now() - t0).toFixed(1);
+
+      const successes = results.filter((r) => r.ok);
+      const positions = successes.map((r) => r.json && r.json.position).filter((p) => typeof p === 'number');
+      const uniquePositions = new Set(positions);
+      const allUnique = uniquePositions.size === positions.length;
+      const sorted = [...positions].sort((a, b) => a - b);
+      const contiguous = sorted.length > 0 && sorted[0] >= 1 &&
+        sorted.every((p, idx) => idx === 0 || p === sorted[idx - 1] + 1);
+
+      summary.innerHTML =
+        `Done in ${elapsed}ms. ` +
+        `<span class="${allUnique ? 'ok' : 'err'}">Unique positions: ${allUnique ? 'YES' : 'NO (DUPLICATES!)'}</span> ` +
+        `&nbsp;|&nbsp; ` +
+        `<span class="${contiguous ? 'ok' : 'err'}">Contiguous: ${contiguous ? 'YES' : 'NO'}</span> ` +
+        `&nbsp;|&nbsp; Successes: ${successes.length}/${n}`;
+
+      grid.style.display = 'grid';
+      grid.innerHTML =
+        '<div class="hdr">#</div><div class="hdr">HTTP</div><div class="hdr">Position</div><div class="hdr">Email / body</div>';
+      results.forEach((r) => {
+        const ok = r.ok;
+        const position = r.json && typeof r.json.position === 'number' ? r.json.position : '';
+        grid.innerHTML +=
+          `<div>${r.i + 1}</div>` +
+          `<div class="${ok ? 'ok' : 'err'}">${r.status}</div>` +
+          `<div class="${ok ? 'ok' : 'err'}">${position}</div>` +
+          `<div>${escapeHTML(r.email)}${ok ? '' : ' — ' + escapeHTML(r.text)}</div>`;
+      });
+
+      log(`Concurrent join demo: n=${n}, successes=${successes.length}, uniquePositions=${allUnique}, contiguous=${contiguous}, elapsed=${elapsed}ms`);
+    }
+
+    function clearConcurrentResults() {
+      document.getElementById('concurrentSummary').textContent = '';
+      const grid = document.getElementById('concurrentResults');
+      grid.innerHTML = '';
+      grid.style.display = 'none';
+    }
+
     renderSavedUsers();
   </script>
 </body>
