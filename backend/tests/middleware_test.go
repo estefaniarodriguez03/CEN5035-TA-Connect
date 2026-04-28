@@ -101,14 +101,14 @@ func TestAuthMiddleware_Missing_Returns401WithCode(t *testing.T) {
 		t.Fatalf("no token: expected 401 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body errorBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 401 body: %v", err)
 	}
 	if body.Code != "auth_required" {
-		t.Fatalf("expected code=auth_required, got %q (error=%q)", body.Code, body.Error)
+		t.Fatalf("expected code=auth_required, got %q (message=%q)", body.Code, body.Message)
 	}
-	if body.Error == "" {
+	if body.Message == "" {
 		t.Fatalf("expected non-empty error message, got empty")
 	}
 }
@@ -122,7 +122,7 @@ func TestAuthMiddleware_InvalidToken_Returns401WithCode(t *testing.T) {
 		t.Fatalf("bad token: expected 401 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body errorBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 401 body: %v", err)
 	}
@@ -155,17 +155,17 @@ func TestRoleMiddleware_StudentOnTARoute_Returns403WithCodeAndRequiredRole(t *te
 		t.Fatalf("student create queue: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body forbiddenBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 403 body: %v", err)
 	}
 	if body.Code != "role_forbidden" {
 		t.Fatalf("expected code=role_forbidden, got %q", body.Code)
 	}
-	if body.RequiredRole != "ta" {
-		t.Fatalf("expected required_role=ta, got %q", body.RequiredRole)
+	if got := requiredRoleFromDetails(t, body.Details); got != "ta" {
+		t.Fatalf("expected required_role=ta, got %q", got)
 	}
-	if body.Error == "" {
+	if body.Message == "" {
 		t.Fatalf("expected non-empty error message")
 	}
 }
@@ -205,15 +205,15 @@ func TestRoleMiddleware_TAOnStudentRoute_Returns403WithCodeAndRequiredRole(t *te
 		t.Fatalf("ta join: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body forbiddenBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 403 body: %v", err)
 	}
 	if body.Code != "role_forbidden" {
 		t.Fatalf("expected code=role_forbidden, got %q", body.Code)
 	}
-	if body.RequiredRole != "student" {
-		t.Fatalf("expected required_role=student, got %q", body.RequiredRole)
+	if got := requiredRoleFromDetails(t, body.Details); got != "student" {
+		t.Fatalf("expected required_role=student, got %q", got)
 	}
 }
 
@@ -249,12 +249,13 @@ func TestRoleMiddleware_TACannotLeaveQueue(t *testing.T) {
 		t.Fatalf("ta leave: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body forbiddenBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 403 body: %v", err)
 	}
-	if body.Code != "role_forbidden" || body.RequiredRole != "student" {
-		t.Fatalf("expected role_forbidden + required_role=student, got code=%q role=%q", body.Code, body.RequiredRole)
+	rrS := requiredRoleFromDetails(t, body.Details)
+	if body.Code != "role_forbidden" || rrS != "student" {
+		t.Fatalf("expected role_forbidden + required_role=student, got code=%q role=%q", body.Code, rrS)
 	}
 }
 
@@ -305,12 +306,12 @@ func TestOwnership_NonOwningTAGetsStructured403_OnNext(t *testing.T) {
 		t.Fatalf("non-owner next: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body forbiddenBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 403 body: %v", err)
 	}
 	if body.Code != "not_queue_owner" {
-		t.Fatalf("expected code=not_queue_owner, got %q (error=%q)", body.Code, body.Error)
+		t.Fatalf("expected code=not_queue_owner, got %q (message=%q)", body.Code, body.Message)
 	}
 }
 
@@ -358,7 +359,7 @@ func TestOwnership_NonOwningTAGetsStructured403_OnUpdateState(t *testing.T) {
 		t.Fatalf("non-owner patch state: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body forbiddenBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 403 body: %v", err)
 	}
@@ -414,7 +415,7 @@ func TestOwnership_NonOwningTAGetsStructured403_OnOfficeHourUpdate(t *testing.T)
 		t.Fatalf("non-owner update oh: expected 403 got %d body=%s", rr.Code, rr.Body.String())
 	}
 
-	var body forbiddenBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 403 body: %v", err)
 	}

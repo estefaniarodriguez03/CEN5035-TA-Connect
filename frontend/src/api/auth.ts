@@ -1,3 +1,5 @@
+import { readApiErrorMessage } from "./errors";
+
 export type UserRole = "student" | "ta";
 
 export interface AuthResponse {
@@ -22,7 +24,8 @@ export async function login(email: string, password: string): Promise<AuthRespon
   });
 
   if (!res.ok) {
-    throw new Error("Login failed");
+    const data = await res.json().catch(() => ({}));
+    throw new Error(readApiErrorMessage(data, "Login failed"));
   }
 
   return res.json();
@@ -43,7 +46,8 @@ export async function register(
   });
 
   if (!res.ok) {
-    throw new Error("Registration failed");
+    const data = await res.json().catch(() => ({}));
+    throw new Error(readApiErrorMessage(data, "Registration failed"));
   }
 
   return res.json();

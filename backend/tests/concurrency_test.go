@@ -149,12 +149,12 @@ func TestDuplicateJoin_UniqueConstraintReturns409(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("second join: expected 409 got %d body=%s", rr.Code, rr.Body.String())
 	}
-	var body errorBody
+	var body stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode 409: %v", err)
 	}
-	if body.Error != "already in queue" {
-		t.Fatalf("expected 'already in queue', got %q", body.Error)
+	if body.Message != "already in queue" {
+		t.Fatalf("expected 'already in queue', got %q", body.Message)
 	}
 }
 

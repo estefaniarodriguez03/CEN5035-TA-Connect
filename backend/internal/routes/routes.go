@@ -5,8 +5,10 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/httperr"
 	"backend/internal/officehour"
 	"backend/internal/queue"
+	"backend/internal/sessionlog"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -60,18 +62,23 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Post("/api/queues/{id}/leave", queue.Leave(db))
 	})
 
+	// --- Authenticated: TA and student (own session history) ---
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/api/session-history", sessionlog.ListHistory(db))
+	})
+
 	return r
 }
 
 // healthHandler returns 200 if the database connection is alive, 503 otherwise.
 func healthHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
 		if err := db.PingContext(r.Context()); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"status":"unavailable","error":"database"}`))
+			httperr.Write(w, http.StatusServiceUnavailable, "service_unavailable", "database unavailable", nil)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}

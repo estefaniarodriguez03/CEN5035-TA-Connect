@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -102,6 +103,209 @@ func TestQueueLifecycle_HappyPath(t *testing.T) {
 	}
 }
 
+// Two students served consecutively: the first help session is logged when the second /next runs.
+func TestSessionLog_WrittenOnSecondNext(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+	ctx := context.Background()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_slog_%d", suffix),
+		"email":    fmt.Sprintf("ta_slog_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("student_slog1_%d", suffix),
+		"email":    fmt.Sprintf("student_slog1_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student1: %d %s", rr.Code, rr.Body.String())
+	}
+	st1 := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("student_slog2_%d", suffix),
+		"email":    fmt.Sprintf("student_slog2_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student2: %d %s", rr.Code, rr.Body.String())
+	}
+	st2 := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, st1.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("join 1: %d %s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, st2.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("join 2: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/next", q.ID), nil, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("next 1: %d %s", rr.Code, rr.Body.String())
+	}
+	var n int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_logs WHERE ta_id = $1`, ta.User.ID).Scan(&n); err != nil {
+		t.Fatalf("count session_logs: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("after first next want 0 session_logs, got %d", n)
+	}
+
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/next", q.ID), nil, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("next 2: %d %s", rr.Code, rr.Body.String())
+	}
+	if err := database.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM session_logs WHERE ta_id = $1 AND student_id = $2`,
+		ta.User.ID, st1.User.ID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count session_logs for student1: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("want 1 session log for first student, got %d", n)
+	}
+}
+
+// Close office hours (PATCH closed) while the last student is in help: session_logs gets one row without a second /next.
+func TestQueueClose_FlushesLastSessionLog(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+	ctx := context.Background()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_close_%d", suffix),
+		"email":    fmt.Sprintf("ta_close_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_close_%d", suffix),
+		"email":    fmt.Sprintf("st_close_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	st := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	if err := json.NewDecoder(rr.Body).Decode(&q); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, st.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("join: %d %s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/next", q.ID), nil, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("next: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, ts, http.MethodPatch, fmt.Sprintf("/api/queues/%d/state", q.ID), map[string]any{"status": "closed"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("close: %d %s", rr.Code, rr.Body.String())
+	}
+
+	var n int
+	if err := database.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM session_logs WHERE ta_id = $1 AND student_id = $2`,
+		ta.User.ID, st.User.ID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count session_logs: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("want 1 session log after close, got %d", n)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM queue_entries WHERE queue_id = $1`, q.ID).Scan(&n); err != nil {
+		t.Fatalf("count entries: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("want 0 queue_entries after close, got %d", n)
+	}
+}
+
+// Joins without /next, then close: waiting students are removed, no session log.
+func TestQueueClose_ClearsLineWithoutSessionLog(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+	ctx := context.Background()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_c2_%d", suffix),
+		"email":    fmt.Sprintf("ta_c2_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_c2_%d", suffix),
+		"email":    fmt.Sprintf("st_c2_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	st := parseAuthUser(t, rr)
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct{ ID int `json:"id"` }
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+	_ = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, st.Token)
+
+	rr = doJSON(t, ts, http.MethodPatch, fmt.Sprintf("/api/queues/%d/state", q.ID), map[string]any{"status": "closed"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("close: %d %s", rr.Code, rr.Body.String())
+	}
+	var n int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_logs WHERE ta_id = $1`, ta.User.ID).Scan(&n); err != nil {
+		t.Fatalf("count session_logs: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("want 0 session_logs, got %d", n)
+	}
+}
+
 // Join / leave on a missing queue id => 404.
 func TestQueueJoinLeave_Errors(t *testing.T) {
 	database, ts := newTestServer(t)
@@ -184,12 +388,12 @@ func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("join paused: expected 409 got %d, body=%s", rr.Code, rr.Body.String())
 	}
-	var joinErr map[string]string
+	var joinErr stdErrorBody
 	if err := json.NewDecoder(rr.Body).Decode(&joinErr); err != nil {
 		t.Fatalf("decode join error: %v", err)
 	}
-	if joinErr["error"] != "queue is paused" {
-		t.Fatalf("join paused message: got %q", joinErr["error"])
+	if joinErr.Message != "queue is paused" {
+		t.Fatalf("join paused message: got %q", joinErr.Message)
 	}
 
 	// PATCH state -> closed
@@ -205,8 +409,8 @@ func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&joinErr); err != nil {
 		t.Fatalf("decode join error: %v", err)
 	}
-	if joinErr["error"] != "queue is closed" {
-		t.Fatalf("join closed message: got %q", joinErr["error"])
+	if joinErr.Message != "queue is closed" {
+		t.Fatalf("join closed message: got %q", joinErr.Message)
 	}
 
 	// Re-open and join succeeds
@@ -223,6 +427,66 @@ func TestQueueState_PATCH_JoinBlockedWhenPausedOrClosed(t *testing.T) {
 	rr = doJSON(t, ts, http.MethodPost, statePath, map[string]any{"status": "paused"}, ta.Token)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("post /state: expected 405 got %d", rr.Code)
+	}
+}
+
+// Closed queues cannot be paused; must reopen to open first. Same-status PATCH is a no-op (200, no spurious error).
+func TestQueueState_InvalidTransitionIdempotent(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_tr_%d", suffix),
+		"email":    fmt.Sprintf("ta_tr_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct {
+		ID int `json:"id"`
+	}
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+	statePath := fmt.Sprintf("/api/queues/%d/state", q.ID)
+
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "closed"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("close: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// invalid: closed -> paused
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "paused"}, ta.Token)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("closed->paused: expected 409 got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var errBody struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Details struct {
+			Allowed []string `json:"allowed"`
+		} `json:"details"`
+	}
+	_ = json.NewDecoder(rr.Body).Decode(&errBody)
+	if errBody.Code != "invalid_state_transition" {
+		t.Fatalf("code: %q", errBody.Code)
+	}
+
+	// reopen, then idempotent open->open
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "open"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reopen: %d %s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, ts, http.MethodPatch, statePath, map[string]any{"status": "open"}, ta.Token)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("idempotent open: %d %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -307,5 +571,125 @@ func TestQueueEdgeCases_DuplicateJoin_LeaveNotInQueue_NextEmpty(t *testing.T) {
 	rr = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/next", q.ID), nil, ta.Token)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("next on empty: expected 404 got %d, body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// GET /api/queues/{id} includes average session duration and per-entry / max ETA fields.
+func TestGetQueueResponse_IncludesETAMetadata(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_eta_%d", suffix),
+		"email":    fmt.Sprintf("ta_eta_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+	rr = doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("st_eta_%d", suffix),
+		"email":    fmt.Sprintf("st_eta_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "student",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register student: %d %s", rr.Code, rr.Body.String())
+	}
+	st := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct {
+		ID int `json:"id"`
+	}
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+	_ = doJSON(t, ts, http.MethodPost, fmt.Sprintf("/api/queues/%d/join", q.ID), map[string]any{}, st.Token)
+
+	rr = doJSON(t, ts, http.MethodGet, fmt.Sprintf("/api/queues/%d", q.ID), nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var getResp struct {
+		IsEmpty          bool    `json:"is_empty"`
+		AverageSession   float64 `json:"average_session_duration_seconds"`
+		TAAverageSession float64 `json:"ta_average_session_duration_seconds"`
+		EstimatedMax     int64   `json:"estimated_wait_time_seconds"`
+		Entries          []struct {
+			Position             int   `json:"position"`
+			EstimatedWaitSeconds int64 `json:"estimated_wait_seconds"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&getResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if getResp.AverageSession != 0 {
+		t.Fatalf("no samples yet: avg should be 0, got %v", getResp.AverageSession)
+	}
+	if getResp.TAAverageSession != 0 {
+		t.Fatalf("no TA samples yet: ta avg should be 0, got %v", getResp.TAAverageSession)
+	}
+	if getResp.IsEmpty {
+		t.Fatalf("expected is_empty false with one student")
+	}
+	if len(getResp.Entries) != 1 {
+		t.Fatalf("entries: %d", len(getResp.Entries))
+	}
+	// Avg 0 => ETA utility uses default 240s/position; first in line has 0s wait.
+	if getResp.Entries[0].EstimatedWaitSeconds != 0 {
+		t.Fatalf("pos 1 estimated_wait_seconds: %d", getResp.Entries[0].EstimatedWaitSeconds)
+	}
+	if getResp.EstimatedMax != 0 {
+		t.Fatalf("one student at front: max wait %d", getResp.EstimatedMax)
+	}
+}
+
+// GET /api/queues/{id} sets is_empty true when there are no students in line.
+func TestGetQueue_EmptyQueue_IsEmptyTrue(t *testing.T) {
+	database, ts := newTestServer(t)
+	defer database.Close()
+	suffix := uniqueSuffix()
+
+	rr := doJSON(t, ts, http.MethodPost, "/api/register", map[string]any{
+		"username": fmt.Sprintf("ta_e_%d", suffix),
+		"email":    fmt.Sprintf("ta_e_%d@example.com", suffix),
+		"password": "pw",
+		"role":     "ta",
+	}, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("register ta: %d %s", rr.Code, rr.Body.String())
+	}
+	ta := parseAuthUser(t, rr)
+
+	rr = doJSON(t, ts, http.MethodPost, "/api/queues", map[string]any{"course_id": 1}, ta.Token)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var q struct {
+		ID int `json:"id"`
+	}
+	_ = json.NewDecoder(rr.Body).Decode(&q)
+
+	rr = doJSON(t, ts, http.MethodGet, fmt.Sprintf("/api/queues/%d", q.ID), nil, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get queue: %d %s", rr.Code, rr.Body.String())
+	}
+	var getResp struct {
+		IsEmpty bool  `json:"is_empty"`
+		Entries []any `json:"entries"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&getResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !getResp.IsEmpty {
+		t.Fatalf("expected is_empty true, got false")
+	}
+	if len(getResp.Entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(getResp.Entries))
 	}
 }

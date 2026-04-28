@@ -28,17 +28,26 @@ type authUser struct {
 	} `json:"user"`
 }
 
-// forbiddenBody mirrors auth.ForbiddenResponse for decoding test responses.
-type forbiddenBody struct {
-	Error        string `json:"error"`
-	Code         string `json:"code"`
-	RequiredRole string `json:"required_role,omitempty"`
+// stdErrorBody is the standard API error envelope: { "code", "message", "details" }.
+type stdErrorBody struct {
+	Code    string          `json:"code"`
+	Message string          `json:"message"`
+	Details json.RawMessage `json:"details"`
 }
 
-// errorBody is the generic {"error","code"} JSON shape used for 401/409/etc.
-type errorBody struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
+// requiredRoleFromDetails returns required_role from details (used with code role_forbidden).
+func requiredRoleFromDetails(t *testing.T, details json.RawMessage) string {
+	t.Helper()
+	if len(details) == 0 || string(details) == "null" {
+		return ""
+	}
+	var m struct {
+		RequiredRole string `json:"required_role"`
+	}
+	if err := json.Unmarshal(details, &m); err != nil {
+		t.Fatalf("unmarshal error details: %v", err)
+	}
+	return m.RequiredRole
 }
 
 // setupTestDB connects to the database, runs migrations, and returns *sql.DB.
