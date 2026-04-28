@@ -137,6 +137,12 @@ LEFT JOIN courses c ON c.id = o.course_id
 WHERE o.course_id IS NOT NULL AND c.id IS NULL
 ON CONFLICT (id) DO NOTHING;
 
+SELECT setval(
+	pg_get_serial_sequence('courses', 'id'),
+	COALESCE((SELECT MAX(id) FROM courses), 1),
+	true
+);
+
 DO $$
 BEGIN
 	IF NOT EXISTS (
