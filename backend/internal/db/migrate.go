@@ -16,6 +16,23 @@ CREATE TABLE IF NOT EXISTS users (
 	session_sample_count INT NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS courses (
+	id SERIAL PRIMARY KEY,
+	code TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ta_courses (
+	ta_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	course_id INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	PRIMARY KEY (ta_id, course_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ta_courses_ta_id ON ta_courses(ta_id);
+CREATE INDEX IF NOT EXISTS idx_ta_courses_course_id ON ta_courses(course_id);
+
 CREATE TABLE IF NOT EXISTS queues (
 	id SERIAL PRIMARY KEY,
 	course_id INT NOT NULL DEFAULT 0,
