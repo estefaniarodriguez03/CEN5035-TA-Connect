@@ -41,3 +41,14 @@ export async function addMyTACourse(code: string, name?: string): Promise<TACour
   const body = (await res.json()) as { course: TACourse };
   return body.course;
 }
+
+export async function removeMyTACourse(courseId: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/ta/courses/${courseId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(readApiErrorMessage(err, 'Failed to remove TA course'));
+  }
+}

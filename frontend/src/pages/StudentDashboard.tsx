@@ -56,7 +56,7 @@ function extractUpNextStudentID(payload: QueueEvent["payload"]): number | null {
 }
 
 export default function StudentDashboard() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedCourse, setSelectedCourse] = useState(
     "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
@@ -472,14 +472,13 @@ export default function StudentDashboard() {
           <div className="nav-tabs">
             <button className="nav-tab active">Dashboard</button>
             <button className="nav-tab" onClick={() => navigate("/student/my-courses")}>My Courses</button>
-            <button className="nav-tab">My Queue Status</button>
           </div>
         </div>
         <div className="navbar-right">
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={logout}>
+          <button className="profile-icon" onClick={() => navigate("/profile")}>
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>
