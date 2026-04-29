@@ -1,11 +1,9 @@
-import { useState, useMemo } from "react";
-import { useAuth } from "../context/AuthContext";
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { listAllCourses, type TACourse } from "../api/courses";
 import { listOfficeHoursByCourse, DAY_NAMES, type OfficeHour } from "../api/officeHours";

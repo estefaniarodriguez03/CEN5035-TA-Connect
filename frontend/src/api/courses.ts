@@ -45,8 +45,6 @@ export async function addMyTACourse(code: string, name?: string): Promise<TACour
 export async function removeMyTACourse(courseId: number): Promise<void> {
   const res = await fetch(`${BASE_URL}/api/ta/courses/${courseId}`, {
     method: 'DELETE',
-export async function listAllCourses(): Promise<TACourse[]> {
-  const res = await fetch(`${BASE_URL}/api/courses`, {
     headers: getAuthHeaders(),
   });
   if (!res.ok) {
@@ -54,6 +52,13 @@ export async function listAllCourses(): Promise<TACourse[]> {
     throw new Error(readApiErrorMessage(err, 'Failed to remove TA course'));
   }
 }
+
+export async function listAllCourses(): Promise<TACourse[]> {
+  const res = await fetch(`${BASE_URL}/api/courses`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
     throw new Error(readApiErrorMessage(err, 'Failed to fetch courses'));
   }
   const body = (await res.json()) as { courses?: TACourse[] };
