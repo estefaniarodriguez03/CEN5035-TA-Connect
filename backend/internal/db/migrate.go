@@ -107,6 +107,16 @@ CREATE TABLE IF NOT EXISTS session_logs (
 	CHECK (duration_seconds >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS student_office_hours (
+    id             SERIAL PRIMARY KEY,
+    student_id     INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    office_hour_id INT NOT NULL REFERENCES office_hours(id) ON DELETE CASCADE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(student_id, office_hour_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_office_hours_student_id ON student_office_hours(student_id);
+
 CREATE INDEX IF NOT EXISTS idx_session_logs_ta_id ON session_logs(ta_id);
 CREATE INDEX IF NOT EXISTS idx_session_logs_student_id ON session_logs(student_id);
 CREATE INDEX IF NOT EXISTS idx_session_logs_start_time ON session_logs(start_time DESC);

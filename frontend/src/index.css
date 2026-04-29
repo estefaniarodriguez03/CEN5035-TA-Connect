@@ -1225,6 +1225,32 @@ body {
   background-color: var(--bottlebrush);
 }
 
+.slot-blue {
+  background-color: var(--core-blue);
+}
+
+.slot-orange {
+  background-color: var(--core-orange);
+}
+
+.legend-blue {
+  background-color: var(--core-blue);
+}
+
+.legend-orange {
+  background-color: var(--core-orange);
+}
+
+.badge-blue {
+  background-color: var(--core-blue);
+  color: var(--white);
+}
+
+.badge-orange {
+  background-color: var(--core-orange);
+  color: var(--white);
+}
+
 .course-legend {
   display: flex;
   flex-wrap: wrap;
