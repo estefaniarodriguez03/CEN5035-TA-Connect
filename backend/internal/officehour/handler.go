@@ -313,51 +313,59 @@ func ListByTA(db *sql.DB) http.HandlerFunc {
 
 // ListByCourse handles GET /api/office-hours/course/{course_id}. Public; returns all office hours for that course, ordered by day, start time, then TA.
 func ListByCourse(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		s := chi.URLParam(r, "course_id")
-		if s == "" {
-			httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
-			return
-		}
-		courseID, err := strconv.Atoi(s)
-		if err != nil {
-			httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
-			return
-		}
+    return func(w http.ResponseWriter, r *http.Request) {
+        s := chi.URLParam(r, "course_id")
+        if s == "" {
+            httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
+            return
+        }
+        courseID, err := strconv.Atoi(s)
+        if err != nil {
+            httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course id", nil)
+            return
+        }
 
-		rows, err := db.QueryContext(r.Context(), `
-			SELECT id, ta_id, course_id, day_of_week, start_time::text, end_time::text, location
-			FROM office_hours
-			WHERE course_id = $1
-			ORDER BY day_of_week ASC, start_time ASC, ta_id ASC
-		`, courseID)
-		if err != nil {
-			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
-			return
-		}
-		defer rows.Close()
+        rows, err := db.QueryContext(r.Context(), `
+            SELECT oh.id, oh.ta_id, oh.course_id, oh.day_of_week,
+                   oh.start_time::text, oh.end_time::text, oh.location,
+                   u.username
+            FROM office_hours oh
+            JOIN users u ON u.id = oh.ta_id
+            WHERE oh.course_id = $1
+            ORDER BY oh.day_of_week ASC, oh.start_time ASC, oh.ta_id ASC
+        `, courseID)
+        if err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
+        defer rows.Close()
 
-		list := make([]OfficeHour, 0)
-		for rows.Next() {
-			var oh OfficeHour
-			var startOut, endOut string
-			if err := rows.Scan(&oh.ID, &oh.TAID, &oh.CourseID, &oh.DayOfWeek, &startOut, &endOut, &oh.Location); err != nil {
-				httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
-				return
-			}
-			oh.StartTime = trimTimeSuffix(startOut)
-			oh.EndTime = trimTimeSuffix(endOut)
-			list = append(list, oh)
-		}
-		if err := rows.Err(); err != nil {
-			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
-			return
-		}
+        list := make([]OfficeHour, 0)
+        for rows.Next() {
+            var oh OfficeHour
+            var startOut, endOut string
+            var taUsername string
+            if err := rows.Scan(
+                &oh.ID, &oh.TAID, &oh.CourseID, &oh.DayOfWeek,
+                &startOut, &endOut, &oh.Location, &taUsername,
+            ); err != nil {
+                httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+                return
+            }
+            oh.TAUsername = taUsername
+            oh.StartTime = trimTimeSuffix(startOut)
+            oh.EndTime = trimTimeSuffix(endOut)
+            list = append(list, oh)
+        }
+        if err := rows.Err(); err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(list)
-	}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        _ = json.NewEncoder(w).Encode(list)
+    }
 }
 
 func parseOfficeHourID(r *http.Request) (int, error) {

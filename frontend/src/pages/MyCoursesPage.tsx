@@ -1,97 +1,184 @@
 import { useAuth } from "../context/AuthContext";
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { listAllCourses, type TACourse } from "../api/courses";
+import { listOfficeHoursByCourse, DAY_NAMES, type OfficeHour } from "../api/officeHours";
+import {
+  listStudentSchedule,
+  addToStudentSchedule,
+  removeFromStudentSchedule,
+  type ScheduleEntry,
+} from "../api/studentSchedule";
 
-interface CourseOfficeHour {
-  id: number;
-  courseCode: string;
-  courseName: string;
-  taName: string;
-  day: string;
-  time: string;
-  color: string;
-  timeStart: string;
-  timeEnd: string;
+const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'blue', 'orange'];
+
+function formatTime(time: string): string {
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes} ${ampm}`;
 }
 
-interface TodayOfficeHour {
-  id: number;
-  courseCode: string;
-  courseName: string;
-  taName: string;
-  time: string;
-  color: string;
-  timeStart: string;
-  timeEnd: string;
+function getCourseColor(courseID: number): string {
+  return COURSE_COLORS[courseID % COURSE_COLORS.length];
 }
 
 export default function MyCoursesPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState<"weekly" | "today">("weekly");
-  const [filterCourse, setFilterCourse] = useState<string>("all");
-  const [filterTA, setFilterTA] = useState<string>("all");
+
+  const [viewMode, setViewMode] = useState<'weekly' | 'today'>('weekly');
+  const [filterCourse, setFilterCourse] = useState<string>('all');
+  const [filterTA, setFilterTA] = useState<string>('all');
+
+  const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
+  const [loadingSchedule, setLoadingSchedule] = useState(true);
+
   const [showAddModal, setShowAddModal] = useState(false);
-  const [modalCourse, setModalCourse] = useState<string>("");
-  const [modalDay, setModalDay] = useState<string>("Monday");
-  const [modalStartTime, setModalStartTime] = useState<string>("09");
-  const [modalStartPeriod, setModalStartPeriod] = useState<string>("AM");
-  const [modalEndTime, setModalEndTime] = useState<string>("11");
-  const [modalEndPeriod, setModalEndPeriod] = useState<string>("AM");
+  const [allCourses, setAllCourses] = useState<TACourse[]>([]);
+  const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
+  const [courseOfficeHours, setCourseOfficeHours] = useState<OfficeHour[]>([]);
+  const [selectedOfficeHourID, setSelectedOfficeHourID] = useState<number | null>(null);
+  const [selectedTAID, setSelectedTAID] = useState<number | null>(null);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [loadingOfficeHours, setLoadingOfficeHours] = useState(false);
 
-  const defaultOfficeHours: CourseOfficeHour[] = [
-    { id: 1, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", day: "Monday", time: "9:00 AM - 11:00 AM", color: "green", timeStart: "09:00", timeEnd: "11:00" },
-    { id: 2, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", day: "Monday", time: "11:00 AM - 1:00 PM", color: "yellow", timeStart: "11:00", timeEnd: "13:00" },
-    { id: 3, courseCode: "COP3530", courseName: "Data Structures", taName: "Sara Waters", day: "Monday", time: "2:00 PM - 4:00 PM", color: "purple", timeStart: "14:00", timeEnd: "16:00" },
-    { id: 4, courseCode: "COP4600", courseName: "Operating Systems", taName: "John Spurrier", day: "Tuesday", time: "10:00 AM - 12:00 PM", color: "red", timeStart: "10:00", timeEnd: "12:00" },
-    { id: 5, courseCode: "COP3530", courseName: "Data Structures", taName: "Sara Waters", day: "Tuesday", time: "1:00 PM - 3:00 PM", color: "purple", timeStart: "13:00", timeEnd: "15:00" },
-    { id: 6, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", day: "Tuesday", time: "3:00 PM - 5:00 PM", color: "green", timeStart: "15:00", timeEnd: "17:00" },
-    { id: 7, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", day: "Wednesday", time: "9:00 AM - 11:00 AM", color: "yellow", timeStart: "09:00", timeEnd: "11:00" },
-    { id: 8, courseCode: "COP4600", courseName: "Operating Systems", taName: "John Spurrier", day: "Wednesday", time: "11:00 AM - 1:00 PM", color: "red", timeStart: "11:00", timeEnd: "13:00" },
-    { id: 9, courseCode: "COP3530", courseName: "Data Structures", taName: "Sara Waters", day: "Wednesday", time: "2:00 PM - 4:00 PM", color: "purple", timeStart: "14:00", timeEnd: "16:00" },
-    { id: 10, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", day: "Thursday", time: "10:00 AM - 12:00 PM", color: "green", timeStart: "10:00", timeEnd: "12:00" },
-    { id: 11, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", day: "Thursday", time: "1:00 PM - 3:00 PM", color: "yellow", timeStart: "13:00", timeEnd: "15:00" },
-    { id: 12, courseCode: "COP4600", courseName: "Operating Systems", taName: "John Spurrier", day: "Thursday", time: "3:00 PM - 5:00 PM", color: "red", timeStart: "15:00", timeEnd: "17:00" },
-    { id: 13, courseCode: "COP3530", courseName: "Data Structures", taName: "Sara Waters", day: "Friday", time: "9:00 AM - 11:00 AM", color: "purple", timeStart: "09:00", timeEnd: "11:00" },
-    { id: 14, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", day: "Friday", time: "11:00 AM - 1:00 PM", color: "green", timeStart: "11:00", timeEnd: "13:00" },
-    { id: 15, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", day: "Friday", time: "2:00 PM - 4:00 PM", color: "yellow", timeStart: "14:00", timeEnd: "16:00" },
-  ];
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-  const [allOfficeHours, setAllOfficeHours] = useState<CourseOfficeHour[]>(defaultOfficeHours);
-  
-  const defaultTodayOfficeHours: TodayOfficeHour[] = [
-    { id: 1, courseCode: "CEN3031", courseName: "Software Engineering", taName: "Estefania Rodriguez", time: "3:00 PM - 5:00 PM", color: "green", timeStart: "15:00", timeEnd: "17:00" },
-    { id: 2, courseCode: "COP3530", courseName: "Data Structures", taName: "Sara Waters", time: "1:00 PM - 3:00 PM", color: "purple", timeStart: "13:00", timeEnd: "15:00" },
-    { id: 3, courseCode: "COP4020", courseName: "Programming Languages", taName: "Raghav Nanjappan", time: "No office hours today", color: "yellow", timeStart: "", timeEnd: "" },
-    { id: 4, courseCode: "COP4600", courseName: "Operating Systems", taName: "John Spurrier", time: "10:00 AM - 12:00 PM", color: "red", timeStart: "10:00", timeEnd: "12:00" },
-  ];
+  // Load student schedule on mount
+  useEffect(() => {
+    void (async () => {
+      try {
+        const entries = await listStudentSchedule();
+        setSchedule(entries);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to load schedule');
+      } finally {
+        setLoadingSchedule(false);
+      }
+    })();
+  }, []);
 
-  const [todayOfficeHours, setTodayOfficeHours] = useState<TodayOfficeHour[]>(defaultTodayOfficeHours);
+  // Load all courses when modal opens
+  useEffect(() => {
+    if (!showAddModal) return;
+    void (async () => {
+      setLoadingCourses(true);
+      try {
+        const courses = await listAllCourses();
+        const real = courses.filter(
+          (c) => !c.code.startsWith('AUTO-') && !c.code.startsWith('LEGACY-')
+        );
+        setAllCourses(real);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to load courses');
+      } finally {
+        setLoadingCourses(false);
+      }
+    })();
+  }, [showAddModal]);
 
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  // Load office hours when a course is selected in the modal
+  useEffect(() => {
+    if (!selectedCourseID) {
+      setCourseOfficeHours([]);
+      setSelectedOfficeHourID(null);
+      return;
+    }
+    void (async () => {
+      setLoadingOfficeHours(true);
+      try {
+        const hours = await listOfficeHoursByCourse(selectedCourseID);
+        setCourseOfficeHours(hours);
+        setSelectedOfficeHourID(null);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to load office hours');
+      } finally {
+        setLoadingOfficeHours(false);
+      }
+    })();
+  }, [selectedCourseID]);
 
-  const uniqueCourses = Array.from(new Set(allOfficeHours.map(oh => `${oh.courseCode} - ${oh.courseName}`)));
-  const uniqueTAs = Array.from(new Set(allOfficeHours.map(oh => oh.taName)));
+  const handleAddToSchedule = async () => {
+    if (!selectedOfficeHourID) {
+      toast.error('Please select a TA and time slot');
+      return;
+    }
+    try {
+      await addToStudentSchedule(selectedOfficeHourID);
+      const entries = await listStudentSchedule();
+      setSchedule(entries);
+      toast.success('Added to your schedule');
+      setShowAddModal(false);
+      setSelectedCourseID(null);
+      setSelectedTAID(null);
+      setSelectedOfficeHourID(null);
+      setCourseOfficeHours([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to add to schedule');
+    }
+  };
 
-  const filteredOfficeHours = useMemo(() => {
-    return allOfficeHours.filter(oh => {
-      const courseMatch = filterCourse === "all" || `${oh.courseCode} - ${oh.courseName}` === filterCourse;
-      const taMatch = filterTA === "all" || oh.taName === filterTA;
+  const handleRemoveFromSchedule = async (id: number) => {
+    try {
+      await removeFromStudentSchedule(id);
+      setSchedule((prev) => prev.filter((e) => e.id !== id));
+      toast.success('Removed from your schedule');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove from schedule');
+    }
+  };
+
+  const handleJoinQueue = (entry: ScheduleEntry) => {
+    const timeRange = `${formatTime(entry.start_time)} - ${formatTime(entry.end_time)}`;
+    navigate('/student', {
+      state: {
+        autoSelectLabel: `${entry.course_code} – ${entry.course_name} – ${entry.ta_username} (${timeRange})`,
+      },
+    });
+  };
+
+  const uniqueCourses = useMemo(() =>
+    Array.from(new Map(schedule.map((e) => [e.course_id, `${e.course_code} - ${e.course_name}`])).values()),
+    [schedule]
+  );
+
+  const uniqueTAs = useMemo(() =>
+    Array.from(new Set(schedule.map((e) => e.ta_username))),
+    [schedule]
+  );
+
+  const todayDayIndex = new Date().getDay();
+  const todayDayName = DAY_NAMES[todayDayIndex];
+
+  const filteredSchedule = useMemo(() => {
+    return schedule.filter((e) => {
+      const courseMatch = filterCourse === 'all' || `${e.course_code} - ${e.course_name}` === filterCourse;
+      const taMatch = filterTA === 'all' || e.ta_username === filterTA;
       return courseMatch && taMatch;
     });
-  }, [allOfficeHours, filterCourse, filterTA]);
+  }, [schedule, filterCourse, filterTA]);
 
-  const filteredTodayOfficeHours = useMemo(() => {
-    return todayOfficeHours.filter(oh => {
-      const courseMatch = filterCourse === "all" || `${oh.courseCode} - ${oh.courseName}` === filterCourse;
-      const taMatch = filterTA === "all" || oh.taName === filterTA;
-      return courseMatch && taMatch;
+  const uniqueTAsForCourse = useMemo(() => {
+    const seen = new Map<number, string>();
+    courseOfficeHours.forEach((oh) => {
+      if (oh.ta_username && !seen.has(oh.ta_id)) {
+        seen.set(oh.ta_id, oh.ta_username);
+      }
     });
-  }, [todayOfficeHours, filterCourse, filterTA]);
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+  }, [courseOfficeHours]);
+
+  const slotsForSelectedTA = useMemo(() => {
+    if (!selectedTAID) return [];
+    return courseOfficeHours.filter((oh) => oh.ta_id === selectedTAID);
+  }, [courseOfficeHours, selectedTAID]);
 
   const getWeekRange = () => {
     const today = new Date();
@@ -99,141 +186,33 @@ export default function MyCoursesPage() {
     const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const monday = new Date(today);
     monday.setDate(monday.getDate() - daysToMonday);
-    
     const friday = new Date(monday);
     friday.setDate(friday.getDate() + 4);
-    
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const mondayMonth = monthNames[monday.getMonth()];
-    const fridayMonth = monthNames[friday.getMonth()];
-    
-    return `Week of ${mondayMonth} ${monday.getDate()} - ${fridayMonth} ${friday.getDate()}`;
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `Week of ${monthNames[monday.getMonth()]} ${monday.getDate()} - ${monthNames[friday.getMonth()]} ${friday.getDate()}`;
   };
 
   const getTodayDate = () => {
     const today = new Date();
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    return `${dayNames[today.getDay()]}, ${monthNames[today.getMonth()]} ${today.getDate()}`;
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    return `${todayDayName}, ${monthNames[today.getMonth()]} ${today.getDate()}`;
   };
 
-  const handleNavigation = (page: string) => {
-    if (page === "dashboard") {
-      navigate("/student");
-    }
-  };
-
-  const getCourseColor = (courseCode: string): string => {
-    switch (courseCode) {
-      case "CEN3031":
-        return "green";
-      case "COP3530":
-        return "purple";
-      case "COP4020":
-        return "yellow";
-      case "COP4600":
-        return "red";
-      default:
-        return "green";
-    }
-  };
-
-  const getTAName = (courseCode: string): string => {
-    switch (courseCode) {
-      case "CEN3031":
-        return "Estefania Rodriguez";
-      case "COP3530":
-        return "Sara Waters";
-      case "COP4020":
-        return "Raghav Nanjappan";
-      case "COP4600":
-        return "John Spurrier";
-      default:
-        return "You";
-    }
-  };
-
-  const formatTimeDisplay = (hour: string, period: string): string => {
-    return `${hour}:00 ${period}`;
-  };
-
-  const convertTo24Hour = (hour: string, period: string): string => {
-    let hourNum = parseInt(hour);
-    if (period === "PM" && hourNum !== 12) {
-      hourNum += 12;
-    } else if (period === "AM" && hourNum === 12) {
-      hourNum = 0;
-    }
-    return hourNum.toString().padStart(2, "0") + ":00";
-  };
-
-  const handleAddOfficeHours = () => {
-    if (!modalCourse || !modalDay) {
-      alert("Please select a course and day");
-      return;
-    }
-
-    const [courseCode, courseName] = modalCourse.split(" - ");
-    const color = getCourseColor(courseCode);
-    const taName = getTAName(courseCode);
-    const startTimeDisplay = formatTimeDisplay(modalStartTime, modalStartPeriod);
-    const endTimeDisplay = formatTimeDisplay(modalEndTime, modalEndPeriod);
-    const timeDisplay = `${startTimeDisplay} - ${endTimeDisplay}`;
-    const timeStart = convertTo24Hour(modalStartTime, modalStartPeriod);
-    const timeEnd = convertTo24Hour(modalEndTime, modalEndPeriod);
-
-    const newId = Math.max(...allOfficeHours.map(oh => oh.id), ...todayOfficeHours.map(oh => oh.id)) + 1;
-
-    const newWeeklyEntry: CourseOfficeHour = {
-      id: newId,
-      courseCode,
-      courseName,
-      taName,
-      day: modalDay,
-      time: timeDisplay,
-      color,
-      timeStart,
-      timeEnd,
-    };
-
-    setAllOfficeHours([...allOfficeHours, newWeeklyEntry]);
-
-    const today = new Date();
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const todayName = dayNames[today.getDay()];
-
-    if (modalDay === todayName) {
-      const newTodayEntry: TodayOfficeHour = {
-        id: newId,
-        courseCode,
-        courseName,
-        taName,
-        time: timeDisplay,
-        color,
-        timeStart,
-        timeEnd,
-      };
-      setTodayOfficeHours([...todayOfficeHours, newTodayEntry]);
-    }
-
-    setModalCourse("");
-    setModalDay("Monday");
-    setModalStartTime("09");
-    setModalStartPeriod("AM");
-    setModalEndTime("11");
-    setModalEndPeriod("AM");
+  const closeModal = () => {
     setShowAddModal(false);
+    setSelectedCourseID(null);
+    setSelectedTAID(null);
+    setSelectedOfficeHourID(null);
+    setCourseOfficeHours([]);
   };
 
-  const handleDeleteOfficeHours = (id: number) => {
-    setAllOfficeHours(allOfficeHours.filter(oh => oh.id !== id));
-    
-    setTodayOfficeHours(todayOfficeHours.map(oh => 
-      oh.id === id 
-        ? { ...oh, time: "No office hours today", timeStart: "", timeEnd: "" }
-        : oh
-    ));
-  };
+  if (loadingSchedule) {
+    return (
+      <div className="my-courses-page">
+        <p style={{ padding: '2rem' }}>Loading your schedule...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="my-courses-page">
@@ -245,7 +224,7 @@ export default function MyCoursesPage() {
             <span className="logo-text">TA Connect</span>
           </div>
           <div className="nav-tabs">
-            <button className="nav-tab" onClick={() => handleNavigation("dashboard")}>Dashboard</button>
+            <button className="nav-tab" onClick={() => navigate('/student')}>Dashboard</button>
             <button className="nav-tab active">My Courses</button>
             <button className="nav-tab">My Queue Status</button>
           </div>
@@ -264,7 +243,9 @@ export default function MyCoursesPage() {
       <div className="my-courses-content">
         <div className="my-courses-header">
           <h1 className="my-courses-title">My Courses - Office Hours</h1>
-          <button className="add-office-hours-btn" onClick={() => setShowAddModal(true)}>+ Add Office Hours</button>
+          <button className="add-office-hours-btn" onClick={() => setShowAddModal(true)}>
+            + Add Office Hours
+          </button>
         </div>
 
         {/* View and Filter Controls */}
@@ -272,15 +253,15 @@ export default function MyCoursesPage() {
           <div className="view-controls">
             <span className="controls-label">View</span>
             <div className="view-buttons">
-              <button 
-                className={`view-btn ${viewMode === "weekly" ? "active" : ""}`}
-                onClick={() => setViewMode("weekly")}
+              <button
+                className={`view-btn ${viewMode === 'weekly' ? 'active' : ''}`}
+                onClick={() => setViewMode('weekly')}
               >
                 Weekly
               </button>
-              <button 
-                className={`view-btn ${viewMode === "today" ? "active" : ""}`}
-                onClick={() => setViewMode("today")}
+              <button
+                className={`view-btn ${viewMode === 'today' ? 'active' : ''}`}
+                onClick={() => setViewMode('today')}
               >
                 Today
               </button>
@@ -290,7 +271,7 @@ export default function MyCoursesPage() {
           <div className="filter-controls">
             <div className="filter-group">
               <label className="filter-label">Filter by Course</label>
-              <select 
+              <select
                 className="filter-dropdown"
                 value={filterCourse}
                 onChange={(e) => setFilterCourse(e.target.value)}
@@ -301,10 +282,9 @@ export default function MyCoursesPage() {
                 ))}
               </select>
             </div>
-
             <div className="filter-group">
               <label className="filter-label">Filter by TA</label>
-              <select 
+              <select
                 className="filter-dropdown"
                 value={filterTA}
                 onChange={(e) => setFilterTA(e.target.value)}
@@ -319,7 +299,7 @@ export default function MyCoursesPage() {
         </div>
 
         {/* Weekly View */}
-        {viewMode === "weekly" && (
+        {viewMode === 'weekly' && (
           <div className="weekly-view-section">
             <div className="view-header">
               <h2 className="view-title">This Week's Office Hours</h2>
@@ -330,54 +310,50 @@ export default function MyCoursesPage() {
             </div>
 
             <div className="schedule-grid-container">
-              {days.map((day) => (
-                <div key={day} className="schedule-column">
-                  <div className="day-header">{day}</div>
-                  <div className="day-slots">
-                    {filteredOfficeHours
-                      .filter((oh) => oh.day === day)
-                      .map((oh) => (
-                        <div key={oh.id} className={`time-slot slot-${oh.color}`}>
-                          <button 
-                            className="delete-btn"
-                            onClick={() => handleDeleteOfficeHours(oh.id)}
-                            title="Delete office hours"
-                          >
-                            ×
-                          </button>
-                          <div className="slot-time">{oh.time}</div>
-                          <div className="slot-ta">{oh.taName}</div>
-                        </div>
-                      ))}
+              {days.map((day) => {
+                const dayIndex = DAY_NAMES.indexOf(day);
+                return (
+                  <div key={day} className="schedule-column">
+                    <div className="day-header">{day}</div>
+                    <div className="day-slots">
+                      {filteredSchedule
+                        .filter((e) => e.day_of_week === dayIndex)
+                        .map((e) => (
+                          <div key={e.id} className={`time-slot slot-${getCourseColor(e.course_id)}`}>
+                            <button
+                              className="delete-btn"
+                              onClick={() => void handleRemoveFromSchedule(e.id)}
+                              title="Remove from schedule"
+                            >
+                              ×
+                            </button>
+                            <div className="slot-time">
+                              {formatTime(e.start_time)} - {formatTime(e.end_time)}
+                            </div>
+                            <div className="slot-ta">{e.ta_username}</div>
+                            <div className="slot-course">{e.course_code}</div>
+                          </div>
+                        ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* Course Legend */}
+            {/* Dynamic Course Legend */}
             <div className="course-legend">
-              <div className="legend-item">
-                <span className="legend-color legend-green"></span>
-                <span>CEN3031 - Software Engineering</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color legend-purple"></span>
-                <span>COP3530 - Data Structures</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color legend-yellow"></span>
-                <span>COP4020 - Programming Languages</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-color legend-red"></span>
-                <span>COP4600 - Operating Systems</span>
-              </div>
+              {Array.from(new Map(schedule.map((e) => [e.course_id, e])).values()).map((e) => (
+                <div key={e.course_id} className="legend-item">
+                  <span className={`legend-color legend-${getCourseColor(e.course_id)}`}></span>
+                  <span>{e.course_code} - {e.course_name}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         {/* Today View */}
-        {viewMode === "today" && (
+        {viewMode === 'today' && (
           <div className="today-view-section">
             <div className="view-header">
               <h2 className="view-title">Today's Office Hours</h2>
@@ -388,137 +364,147 @@ export default function MyCoursesPage() {
             </div>
 
             <div className="today-courses-grid">
-              {filteredTodayOfficeHours.map((oh) => (
-                <div key={oh.id} className="today-course-card">
-                  <button 
-                    className="delete-btn-today"
-                    onClick={() => handleDeleteOfficeHours(oh.id)}
-                    title="Delete office hours"
-                  >
-                    ×
-                  </button>
-                  <div className={`course-badge badge-${oh.color}`}>{oh.courseCode}</div>
-                  <h3 className="course-card-title">{oh.courseName}</h3>
-                  <div className="course-ta-label">TA: {oh.taName}</div>
-                  
-                  <div className="course-office-hours">
-                    <div className="office-hours-label">Today's Office Hours:</div>
-                    <div className={`office-hours-time ${oh.time.includes("No office") ? "no-hours" : ""}`}>
-                      {oh.time}
+              {filteredSchedule
+                .filter((e) => e.day_of_week === todayDayIndex)
+                .map((e) => (
+                  <div key={e.id} className="today-course-card">
+                    <button
+                      className="delete-btn-today"
+                      onClick={() => void handleRemoveFromSchedule(e.id)}
+                      title="Remove from schedule"
+                    >
+                      ×
+                    </button>
+                    <div className={`course-badge badge-${getCourseColor(e.course_id)}`}>
+                      {e.course_code}
                     </div>
+                    <h3 className="course-card-title">{e.course_name}</h3>
+                    <div className="course-ta-label">TA: {e.ta_username}</div>
+                    <div className="course-office-hours">
+                      <div className="office-hours-label">Today's Office Hours:</div>
+                      <div className="office-hours-time">
+                        {formatTime(e.start_time)} - {formatTime(e.end_time)}
+                      </div>
+                    </div>
+                    <button
+                      className="join-queue-today-btn"
+                      onClick={() => handleJoinQueue(e)}
+                    >
+                      Join Queue for {e.course_code}
+                    </button>
                   </div>
+                ))}
 
-                  <button className={`join-queue-today-btn ${oh.time.includes("No office") ? "disabled" : ""}`}
-                    disabled={oh.time.includes("No office")}
-                  >
-                    {oh.time.includes("No office") ? "No queue today" : "Join Queue for " + oh.courseCode}
-                  </button>
+              {filteredSchedule.filter((e) => e.day_of_week === todayDayIndex).length === 0 && (
+                <div className="no-results-message">
+                  <p>No office hours scheduled for today.</p>
                 </div>
-              ))}
+              )}
             </div>
-
-            {filteredTodayOfficeHours.length === 0 && (
-              <div className="no-results-message">
-                <p>No office hours match your filters for today.</p>
-              </div>
-            )}
           </div>
         )}
       </div>
 
       {/* Add Office Hours Modal */}
       {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
+        <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">Add Office Hours</h2>
-              <button className="modal-close-btn" onClick={() => setShowAddModal(false)}>✕</button>
+              <button className="modal-close-btn" onClick={closeModal}>✕</button>
             </div>
 
             <div className="modal-body">
+
+              {/* Step 1 — Course */}
               <div className="form-group">
                 <label className="form-label">Course</label>
-                <select 
-                  className="form-select"
-                  value={modalCourse}
-                  onChange={(e) => setModalCourse(e.target.value)}
-                >
-                  <option value="">Select a course...</option>
-                  {uniqueCourses.map((course, idx) => (
-                    <option key={idx} value={course}>{course}</option>
-                  ))}
-                </select>
+                {loadingCourses ? (
+                  <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>Loading courses...</p>
+                ) : (
+                  <select
+                    className="form-select"
+                    value={selectedCourseID ?? ''}
+                    onChange={(e) => {
+                      setSelectedCourseID(parseInt(e.target.value) || null);
+                      setSelectedTAID(null);
+                      setSelectedOfficeHourID(null);
+                    }}
+                  >
+                    <option value="">Select a course...</option>
+                    {allCourses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code}{c.name ? ` - ${c.name}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Day</label>
-                <select 
-                  className="form-select"
-                  value={modalDay}
-                  onChange={(e) => setModalDay(e.target.value)}
-                >
-                  {days.map((day) => (
-                    <option key={day} value={day}>{day}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Start Time</label>
-                <div className="time-inputs">
-                  <select 
-                    className="form-select time-select"
-                    value={modalStartTime}
-                    onChange={(e) => setModalStartTime(e.target.value)}
-                  >
-                    {Array.from({ length: 12 }, (_, i) => {
-                      const hour = (i + 1).toString();
-                      return (
-                        <option key={hour} value={hour}>{hour}:00</option>
-                      );
-                    })}
-                  </select>
-                  <select 
-                    className="form-select time-select"
-                    value={modalStartPeriod}
-                    onChange={(e) => setModalStartPeriod(e.target.value)}
-                  >
-                    <option value="AM">AM</option>
-                    <option value="PM">PM</option>
-                  </select>
+              {/* Step 2 — TA */}
+              {selectedCourseID && (
+                <div className="form-group">
+                  <label className="form-label">TA</label>
+                  {loadingOfficeHours ? (
+                    <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>Loading TAs...</p>
+                  ) : uniqueTAsForCourse.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                      No TAs have scheduled office hours for this course yet.
+                    </p>
+                  ) : (
+                    <select
+                      className="form-select"
+                      value={selectedTAID ?? ''}
+                      onChange={(e) => {
+                        setSelectedTAID(parseInt(e.target.value) || null);
+                        setSelectedOfficeHourID(null);
+                      }}
+                    >
+                      <option value="">Select a TA...</option>
+                      {uniqueTAsForCourse.map((ta) => (
+                        <option key={ta.id} value={ta.id}>{ta.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
-              </div>
+              )}
 
-              <div className="form-group">
-                <label className="form-label">End Time</label>
-                <div className="time-inputs">
-                  <select 
-                    className="form-select time-select"
-                    value={modalEndTime}
-                    onChange={(e) => setModalEndTime(e.target.value)}
-                  >
-                    {Array.from({ length: 12 }, (_, i) => {
-                      const hour = (i + 1).toString();
-                      return (
-                        <option key={hour} value={hour}>{hour}:00</option>
-                      );
-                    })}
-                  </select>
-                  <select 
-                    className="form-select time-select"
-                    value={modalEndPeriod}
-                    onChange={(e) => setModalEndPeriod(e.target.value)}
-                  >
-                    <option value="AM">AM</option>
-                    <option value="PM">PM</option>
-                  </select>
+              {/* Step 3 — Time slot */}
+              {selectedTAID && (
+                <div className="form-group">
+                  <label className="form-label">Time Slot</label>
+                  {slotsForSelectedTA.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                      No time slots available for this TA.
+                    </p>
+                  ) : (
+                    <select
+                      className="form-select"
+                      value={selectedOfficeHourID ?? ''}
+                      onChange={(e) => setSelectedOfficeHourID(parseInt(e.target.value) || null)}
+                    >
+                      <option value="">Select a time slot...</option>
+                      {slotsForSelectedTA.map((oh) => (
+                        <option key={oh.id} value={oh.id}>
+                          {DAY_NAMES[oh.day_of_week]} — {formatTime(oh.start_time)} to {formatTime(oh.end_time)}
+                          {oh.location ? ` (${oh.location})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="modal-footer">
-              <button className="modal-cancel-btn" onClick={() => setShowAddModal(false)}>Cancel</button>
-              <button className="modal-submit-btn" onClick={handleAddOfficeHours}>Add Office Hours</button>
+              <button className="modal-cancel-btn" onClick={closeModal}>Cancel</button>
+              <button
+                className="modal-submit-btn"
+                onClick={() => void handleAddToSchedule()}
+                disabled={!selectedOfficeHourID}
+              >
+                Add to Schedule
+              </button>
             </div>
           </div>
         </div>

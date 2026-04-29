@@ -1,24 +1,13 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-
-interface OfficeHourSchedule {
-  id: number;
-  dayOfWeek: string;
-  startTime: string;
-  endTime: string;
-  course: string;
-  isRecurring: boolean;
-}
-
-const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-const EMPTY_FORM = {
-  dayOfWeek: 'Monday',
-  startTime: '',
-  endTime: '',
-  course: '',
-  isRecurring: true,
-};
+import {
+  createOfficeHour,
+  updateOfficeHour,
+  deleteOfficeHour,
+  DAY_NAMES,
+  type OfficeHour,
+} from '../api/officeHours';
+import { type TACourse } from '../api/courses';
 
 function formatTime(time: string): string {
   const [hours, minutes] = time.split(':');
@@ -28,44 +17,109 @@ function formatTime(time: string): string {
   return `${displayHour}:${minutes} ${ampm}`;
 }
 
-export default function MyOfficeHoursPage() {
-  const [schedules, setSchedules] = useState<OfficeHourSchedule[]>([
-    { id: 1, dayOfWeek: 'Monday', startTime: '11:00', endTime: '13:00', course: 'COP3530 - Data Structures', isRecurring: true },
-    { id: 2, dayOfWeek: 'Monday', startTime: '15:30', endTime: '16:30', course: 'COP3530 - Data Structures', isRecurring: true },
-    { id: 3, dayOfWeek: 'Wednesday', startTime: '14:00', endTime: '15:00', course: 'COP3530 - Data Structures', isRecurring: true },
-    { id: 4, dayOfWeek: 'Friday', startTime: '10:00', endTime: '11:30', course: 'COP3530 - Data Structures', isRecurring: true },
-  ]);
+function toTimeInput(t: string): string {
+  return t.slice(0, 5);
+}
 
+interface FormState {
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  course_id: number;
+  location: string;
+}
+
+const EMPTY_FORM: FormState = {
+  day_of_week: 1,
+  start_time: '',
+  end_time: '',
+  course_id: 0,
+  location: '',
+};
+
+export default function MyOfficeHoursPage({
+  taCourses = [],
+  officeHours,
+  onOfficeHoursChange,
+}: {
+  taCourses?: TACourse[];
+  officeHours: OfficeHour[];
+  onOfficeHoursChange: (hours: OfficeHour[]) => void;
+}) {
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<OfficeHourSchedule | null>(null);
-  const [formData, setFormData] = useState({ ...EMPTY_FORM });
+  const [editingSchedule, setEditingSchedule] = useState<OfficeHour | null>(null);
+  const [formData, setFormData] = useState<FormState>({ ...EMPTY_FORM });
 
-  const groupedSchedules = DAYS_OF_WEEK.reduce((acc, day) => {
-    acc[day] = schedules.filter((s) => s.dayOfWeek === day);
+  const groupedSchedules = DAY_NAMES.reduce((acc, day, idx) => {
+    acc[day] = officeHours.filter((s) => s.day_of_week === idx);
     return acc;
-  }, {} as Record<string, OfficeHourSchedule[]>);
+  }, {} as Record<string, OfficeHour[]>);
 
-  const handleAddSchedule = () => {
-    if (!formData.startTime || !formData.endTime || !formData.course) {
-      toast.error('Please fill in all fields');
+  const getCourseLabel = (courseID: number): string => {
+    const course = taCourses.find((c) => c.id === courseID);
+    return course
+      ? `${course.code}${course.name ? ` - ${course.name}` : ''}`
+      : `Course ${courseID}`;
+  };
+
+  const handleAddSchedule = async () => {
+    if (!formData.start_time || !formData.end_time || !formData.course_id) {
+      toast.error('Please fill in all required fields');
       return;
     }
-    setSchedules((prev) => [...prev, { id: Date.now(), ...formData }]);
-    toast.success('Office hours added successfully');
-    setShowAddModal(false);
-    setFormData({ ...EMPTY_FORM });
+    try {
+      const created = await createOfficeHour({
+        course_id: formData.course_id,
+        day_of_week: formData.day_of_week,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        location: formData.location,
+      });
+      onOfficeHoursChange(
+        [...officeHours, created].sort(
+          (a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time)
+        )
+      );
+      toast.success('Office hours added');
+      setShowAddModal(false);
+      setFormData({ ...EMPTY_FORM });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to add office hours');
+    }
   };
 
-  const handleUpdateSchedule = () => {
+  const handleUpdateSchedule = async () => {
     if (!editingSchedule) return;
-    setSchedules((prev) => prev.map((s) => (s.id === editingSchedule.id ? { ...editingSchedule } : s)));
-    toast.success('Office hours updated successfully');
-    setEditingSchedule(null);
+    try {
+      const updated = await updateOfficeHour(editingSchedule.id, {
+        course_id: editingSchedule.course_id,
+        day_of_week: editingSchedule.day_of_week,
+        start_time: editingSchedule.start_time,
+        end_time: editingSchedule.end_time,
+        location: editingSchedule.location,
+      });
+      onOfficeHoursChange(
+        officeHours
+          .map((s) => (s.id === updated.id ? updated : s))
+          .sort(
+            (a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time)
+          )
+      );
+      toast.success('Office hours updated');
+      setEditingSchedule(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update office hours');
+    }
   };
 
-  const handleDeleteSchedule = (id: number) => {
-    setSchedules((prev) => prev.filter((s) => s.id !== id));
-    toast.success('Office hours deleted');
+  const handleDeleteSchedule = async (id: number) => {
+    try {
+      await deleteOfficeHour(id);
+      onOfficeHoursChange(officeHours.filter((s) => s.id !== id));
+      toast.success('Office hours deleted');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete office hours');
+    }
   };
 
   return (
@@ -77,43 +131,48 @@ export default function MyOfficeHoursPage() {
           <h1 className="welcome-title oh-page-title">My Office Hours</h1>
           <p className="oh-page-subtitle">Manage your office hour schedule and availability</p>
         </div>
-        <button className="start-queue-btn oh-add-btn" onClick={() => setShowAddModal(true)}>
+        <button
+          className="start-queue-btn oh-add-btn"
+          onClick={() => setShowAddModal(true)}
+          disabled={taCourses.length === 0}
+          title={taCourses.length === 0 ? 'Add courses from the Dashboard first' : undefined}
+        >
           + Add Office Hours
         </button>
       </div>
 
+      {taCourses.length === 0 && (
+        <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1rem' }}>
+          No courses linked yet. Add courses from the Dashboard before scheduling office hours.
+        </p>
+      )}
+
       {/* Schedule — one card per day */}
       <div className="oh-schedule-grid">
-        {DAYS_OF_WEEK.map((day) => (
+        {DAY_NAMES.map((day) => (
           <div key={day} className="oh-day-card">
-
-            {/* Blue day header — matches sidebar-content gradient */}
             <div className="oh-day-header">
               <h2 className="oh-day-heading">{day}</h2>
             </div>
-
             <div className="oh-day-body">
               {groupedSchedules[day].length > 0 ? (
                 groupedSchedules[day].map((schedule) => (
                   <div key={schedule.id} className="office-hour-card oh-schedule-item">
-
                     <div className="oh-schedule-info">
-                      {/* Time row — reuses office-hour-time colour */}
                       <div className="office-hour-time oh-time-row">
                         <span className="oh-time-label">
-                          {formatTime(schedule.startTime)} – {formatTime(schedule.endTime)}
+                          {formatTime(schedule.start_time)} – {formatTime(schedule.end_time)}
                         </span>
                       </div>
-
-                      {/* Course — reuses office-hour-course */}
-                      <p className="office-hour-course oh-course-label">{schedule.course}</p>
-
-                      {schedule.isRecurring && (
-                        <span className="oh-recurring-badge">Recurring Weekly</span>
+                      <p className="office-hour-course oh-course-label">
+                        {getCourseLabel(schedule.course_id)}
+                      </p>
+                      {schedule.location && (
+                        <p className="oh-course-label" style={{ color: '#6b7280', fontSize: '0.85rem' }}>
+                          {schedule.location}
+                        </p>
                       )}
                     </div>
-
-                    {/* Actions — reuses existing modify-btn / cancel-btn */}
                     <div className="office-hour-actions oh-item-actions">
                       <button
                         className="modify-btn"
@@ -123,19 +182,17 @@ export default function MyOfficeHoursPage() {
                       </button>
                       <button
                         className="cancel-btn"
-                        onClick={() => handleDeleteSchedule(schedule.id)}
+                        onClick={() => void handleDeleteSchedule(schedule.id)}
                       >
                         Delete
                       </button>
                     </div>
-
                   </div>
                 ))
               ) : (
                 <p className="oh-empty-day">No office hours scheduled</p>
               )}
             </div>
-
           </div>
         ))}
       </div>
@@ -145,9 +202,13 @@ export default function MyOfficeHoursPage() {
         <OfficeHoursModal
           title="Add Office Hours"
           formData={formData}
+          taCourses={taCourses}
           onChange={setFormData}
-          onSubmit={handleAddSchedule}
-          onClose={() => setShowAddModal(false)}
+          onSubmit={() => void handleAddSchedule()}
+          onClose={() => {
+            setShowAddModal(false);
+            setFormData({ ...EMPTY_FORM });
+          }}
           submitLabel="Add Schedule"
         />
       )}
@@ -156,9 +217,16 @@ export default function MyOfficeHoursPage() {
       {editingSchedule && (
         <OfficeHoursModal
           title="Edit Office Hours"
-          formData={editingSchedule}
-          onChange={setEditingSchedule}
-          onSubmit={handleUpdateSchedule}
+          formData={{
+            day_of_week: editingSchedule.day_of_week,
+            start_time: toTimeInput(editingSchedule.start_time),
+            end_time: toTimeInput(editingSchedule.end_time),
+            course_id: editingSchedule.course_id,
+            location: editingSchedule.location,
+          }}
+          taCourses={taCourses}
+          onChange={(updated) => setEditingSchedule({ ...editingSchedule, ...updated })}
+          onSubmit={() => void handleUpdateSchedule()}
           onClose={() => setEditingSchedule(null)}
           submitLabel="Update Schedule"
         />
@@ -169,55 +237,45 @@ export default function MyOfficeHoursPage() {
 
 interface ModalProps {
   title: string;
-  formData: {
-    dayOfWeek: string;
-    startTime: string;
-    endTime: string;
-    course: string;
-    isRecurring: boolean;
-  };
-  onChange: (data: any) => void;
+  formData: FormState;
+  taCourses: TACourse[];
+  onChange: (data: FormState) => void;
   onSubmit: () => void;
   onClose: () => void;
   submitLabel: string;
 }
 
-function OfficeHoursModal({ title, formData, onChange, onSubmit, onClose, submitLabel }: ModalProps) {
+function OfficeHoursModal({ title, formData, taCourses, onChange, onSubmit, onClose, submitLabel }: ModalProps) {
   return (
     <div className="announcement-modal-overlay">
       <div className="announcement-modal-card">
-
-        {/* Header — reuses announcement-modal-header gradient */}
         <div className="announcement-modal-header">
           <h3 className="announcement-modal-title">{title}</h3>
           <button className="announcement-modal-close-btn" onClick={onClose}>✕</button>
         </div>
-
         <div className="announcement-modal-body">
 
-          {/* Day selector */}
           <div className="oh-modal-field">
             <label className="oh-modal-label">Day of Week</label>
             <select
               className="oh-modal-input"
-              value={formData.dayOfWeek}
-              onChange={(e) => onChange({ ...formData, dayOfWeek: e.target.value })}
+              value={formData.day_of_week}
+              onChange={(e) => onChange({ ...formData, day_of_week: parseInt(e.target.value) })}
             >
-              {DAYS_OF_WEEK.map((day) => (
-                <option key={day} value={day}>{day}</option>
+              {DAY_NAMES.map((day, idx) => (
+                <option key={day} value={idx}>{day}</option>
               ))}
             </select>
           </div>
 
-          {/* Start / End time */}
           <div className="oh-modal-time-row">
             <div className="oh-modal-field">
               <label className="oh-modal-label">Start Time</label>
               <input
                 type="time"
                 className="oh-modal-input"
-                value={formData.startTime}
-                onChange={(e) => onChange({ ...formData, startTime: e.target.value })}
+                value={formData.start_time}
+                onChange={(e) => onChange({ ...formData, start_time: e.target.value })}
               />
             </div>
             <div className="oh-modal-field">
@@ -225,39 +283,52 @@ function OfficeHoursModal({ title, formData, onChange, onSubmit, onClose, submit
               <input
                 type="time"
                 className="oh-modal-input"
-                value={formData.endTime}
-                onChange={(e) => onChange({ ...formData, endTime: e.target.value })}
+                value={formData.end_time}
+                onChange={(e) => onChange({ ...formData, end_time: e.target.value })}
               />
             </div>
           </div>
 
-          {/* Course */}
           <div className="oh-modal-field">
             <label className="oh-modal-label">Course</label>
+            {taCourses.length > 0 ? (
+              <select
+                className="oh-modal-input"
+                value={formData.course_id === 0 ? '' : formData.course_id}
+                onChange={(e) => onChange({ ...formData, course_id: parseInt(e.target.value) })}
+              >
+                <option value="">Select a course</option>
+                {taCourses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code}{c.name ? ` - ${c.name}` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>
+                No courses linked yet. Add courses from the Dashboard first.
+              </p>
+            )}
+          </div>
+
+          <div className="oh-modal-field">
+            <label className="oh-modal-label">Location (optional)</label>
             <input
               type="text"
               className="oh-modal-input"
-              placeholder="e.g., COP3530 - Data Structures"
-              value={formData.course}
-              onChange={(e) => onChange({ ...formData, course: e.target.value })}
+              placeholder="e.g. CSE E221"
+              value={formData.location}
+              onChange={(e) => onChange({ ...formData, location: e.target.value })}
             />
           </div>
 
-          {/* Recurring checkbox */}
-          <div className="oh-modal-recurring-row">
-            <input
-              type="checkbox"
-              id="oh-recurring"
-              checked={formData.isRecurring}
-              onChange={(e) => onChange({ ...formData, isRecurring: e.target.checked })}
-            />
-            <label htmlFor="oh-recurring" className="oh-modal-label">Recurring weekly</label>
-          </div>
-
-          {/* Actions — reuse announcement button styles */}
           <div className="announcement-modal-actions">
             <button className="announcement-cancel-btn" onClick={onClose}>Cancel</button>
-            <button className="start-queue-btn announcement-send-all-btn" onClick={onSubmit}>
+            <button
+              className="start-queue-btn announcement-send-all-btn"
+              onClick={onSubmit}
+              disabled={!formData.course_id || !formData.start_time || !formData.end_time}
+            >
               {submitLabel}
             </button>
           </div>

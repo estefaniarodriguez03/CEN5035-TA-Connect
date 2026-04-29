@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, postQueueAnnouncement, setActiveQueueForCourse, setActiveQueueForOfficeHour, startSession, subscribeToQueueEvents, updateQueueState } from "../api/queue";
 import { addMyTACourse, listMyTACourses, type TACourse } from "../api/courses";
+import { listOfficeHoursByTA, DAY_NAMES, type OfficeHour as ApiOfficeHour } from "../api/officeHours";
 import type {
   NextQueueError,
   QueueStatus,
@@ -44,6 +45,14 @@ interface OfficeHour {
   courseID: number;
 }
 
+function formatTime12(time: string): string {
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes} ${ampm}`;
+}
+
 export default function TADashboard() {
   const { user, logout } = useAuth();
 
@@ -63,8 +72,7 @@ export default function TADashboard() {
   const [taCourses, setTACourses] = useState<TACourse[]>([]);
   const [newCourseCode, setNewCourseCode] = useState('');
   const [newCourseName, setNewCourseName] = useState('');
-
-  // TA dashboard currently operates on one selected office hour at a time.
+  const [apiOfficeHours, setApiOfficeHours] = useState<ApiOfficeHour[]>([]);
 
   const getWaitMinutes = (joinedAt: Date): number => {
     return Math.max(0, Math.floor((Date.now() - joinedAt.getTime()) / 60000));
@@ -92,17 +100,39 @@ export default function TADashboard() {
     });
   };
 
-  const todaySchedule: OfficeHour[] = [
-    { id: 1, day: "Today", time: "11:00 AM - 1:00 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
-    { id: 2, day: "Today", time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
-  ];
+  const todayDayIndex = new Date().getDay();
 
-  const weeklyOfficeHours: OfficeHour[] = [
-    { id: 1, day: "Monday", time: "11:00 AM - 1:00 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
-    { id: 2, day: "Monday", time: "3:30 PM - 4:30 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
-    { id: 3, day: "Wednesday", time: "2:00 PM - 3:00 PM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
-    { id: 4, day: "Friday", time: "10:00 AM - 11:30 AM", course: "COP3530 - Data Structures", courseCode: "COP3530", courseID: 2 },
-  ];
+  const todaySchedule = apiOfficeHours
+    .filter((oh) => oh.day_of_week === todayDayIndex)
+    .map((oh) => {
+      const course = taCourses.find((c) => c.id === oh.course_id);
+      const courseLabel = course
+        ? `${course.code}${course.name ? ` - ${course.name}` : ''}`
+        : `Course ${oh.course_id}`;
+      return {
+        id: oh.id,
+        day: 'Today',
+        time: `${formatTime12(oh.start_time)} - ${formatTime12(oh.end_time)}`,
+        course: courseLabel,
+        courseCode: course?.code ?? `COURSE-${oh.course_id}`,
+        courseID: oh.course_id,
+      };
+    });
+
+  const weeklyOfficeHours = apiOfficeHours.map((oh) => {
+    const course = taCourses.find((c) => c.id === oh.course_id);
+    const courseLabel = course
+      ? `${course.code}${course.name ? ` - ${course.name}` : ''}`
+      : `Course ${oh.course_id}`;
+    return {
+      id: oh.id,
+      day: DAY_NAMES[oh.day_of_week],
+      time: `${formatTime12(oh.start_time)} - ${formatTime12(oh.end_time)}`,
+      course: courseLabel,
+      courseCode: course?.code ?? `COURSE-${oh.course_id}`,
+      courseID: oh.course_id,
+    };
+  });
 
   const selectedOfficeHour = todaySchedule.find((slot) => slot.id === selectedOfficeHourID) ?? null;
 
@@ -147,6 +177,7 @@ export default function TADashboard() {
 
   const sortedQueue = [...queueStudents].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
 
+  // Load TA courses
   useEffect(() => {
     if (user?.role !== 'ta') return;
     void (async () => {
@@ -159,6 +190,19 @@ export default function TADashboard() {
       }
     })();
   }, [user?.role]);
+
+  // Load office hours from API
+  useEffect(() => {
+    if (!user?.id) return;
+    void (async () => {
+      try {
+        const hours = await listOfficeHoursByTA(user.id);
+        setApiOfficeHours(hours);
+      } catch (error) {
+        toast.info(error instanceof Error ? error.message : 'Failed to load office hours');
+      }
+    })();
+  }, [user?.id]);
 
   // Recompute live wait-time labels every 15 seconds.
   useEffect(() => {
@@ -310,20 +354,18 @@ export default function TADashboard() {
       toast.info('No active queue found.');
       return;
     }
+
+    const zoomWindow = window.open('', '_blank', 'noopener,noreferrer');
+
     try {
       const session = await startSession(activeQueueID, student.studentUserID);
       setActiveSession({ session, studentName: student.name });
 
-      // Open the host start URL for the TA in a new tab so they can launch
-      // Zoom immediately. Browsers may block this if the click handler chain
-      // is interrupted; the modal still surfaces the link as a fallback.
       const hostURL = session.zoom_start_url || session.zoom_join_url;
-      if (hostURL) {
-        try {
-          window.open(hostURL, '_blank', 'noopener,noreferrer');
-        } catch {
-          // popup blocked; the modal still shows the link.
-        }
+      if (hostURL && zoomWindow) {
+        zoomWindow.location.href = hostURL;
+      } else if (zoomWindow) {
+        zoomWindow.close();
       }
 
       await refreshQueueData();
@@ -331,6 +373,7 @@ export default function TADashboard() {
         description: 'Zoom meeting created.',
       });
     } catch (error) {
+      zoomWindow?.close();
       if (isNextQueueError(error) && error.code === "queue_empty") {
         toast.info("The queue is empty. No students are waiting right now.");
         return;
@@ -421,23 +464,43 @@ export default function TADashboard() {
 
   const officeHoursSidebar = (
     <div className="office-hours-list">
-      {weeklyOfficeHours.map((hour) => (
-        <div key={hour.id} className="office-hour-card">
-          <div className="office-hour-day">
-            <img src={orangeDateIcon} alt="Date" className="calendar-icon" />
-            <span>{hour.day}</span>
+      {weeklyOfficeHours.length === 0 ? (
+        <p style={{ color: '#6b7280', fontSize: '0.9rem', padding: '0.5rem 0' }}>
+          No office hours scheduled yet.
+        </p>
+      ) : (
+        weeklyOfficeHours.map((hour) => (
+          <div key={hour.id} className="office-hour-card">
+            <div className="office-hour-day">
+              <img src={orangeDateIcon} alt="Date" className="calendar-icon" />
+              <span>{hour.day}</span>
+            </div>
+            <div className="office-hour-time">
+              <img src={orangeClockIcon} alt="Time" className="time-icon" />
+              <span>{hour.time}</span>
+            </div>
+            <div className="office-hour-course">{hour.course}</div>
+            <div className="office-hour-actions">
+              <button
+                className="modify-btn"
+                onClick={() => setActiveTab('office-hours')}
+                style={{
+                  background: '#0021A5',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '0.35rem 0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                }}
+              >
+                Modify
+              </button>
+            </div>
           </div>
-          <div className="office-hour-time">
-            <img src={orangeClockIcon} alt="Time" className="time-icon" />
-            <span>{hour.time}</span>
-          </div>
-          <div className="office-hour-course">{hour.course}</div>
-          <div className="office-hour-actions">
-            <button className="modify-btn">Modify</button>
-            <button className="cancel-btn">Cancel</button>
-          </div>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 
@@ -484,7 +547,11 @@ export default function TADashboard() {
 
       {/* Tab: My Office Hours */}
       {activeTab === 'office-hours' ? (
-        <MyOfficeHoursPage />
+        <MyOfficeHoursPage
+          taCourses={taCourses}
+          officeHours={apiOfficeHours}
+          onOfficeHoursChange={setApiOfficeHours}
+        />
       ) : (
         <>
           {queueStatus === 'closed' ? (
@@ -499,27 +566,33 @@ export default function TADashboard() {
                       Welcome Back, {user?.username || "Lovely TA"}! Here is your Schedule for the Day
                     </h1>
                     <div className="schedule-cards">
-                      {todaySchedule.map((slot) => (
-                        <div
-                          key={slot.id}
-                          className={`schedule-card ${selectedOfficeHourID === slot.id ? 'selected-office-hour' : ''}`}
-                          onClick={() => setSelectedOfficeHourID(slot.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setSelectedOfficeHourID(slot.id);
-                            }
-                          }}
-                        >
-                          <div className="schedule-time">
-                            <img src={orangeClockIcon} alt="Time" className="time-icon" />
-                            <span className="time-text">{slot.time}</span>
+                      {todaySchedule.length === 0 ? (
+                        <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                          No office hours scheduled for today.
+                        </p>
+                      ) : (
+                        todaySchedule.map((slot) => (
+                          <div
+                            key={slot.id}
+                            className={`schedule-card ${selectedOfficeHourID === slot.id ? 'selected-office-hour' : ''}`}
+                            onClick={() => setSelectedOfficeHourID(slot.id)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedOfficeHourID(slot.id);
+                              }
+                            }}
+                          >
+                            <div className="schedule-time">
+                              <img src={orangeClockIcon} alt="Time" className="time-icon" />
+                              <span className="time-text">{slot.time}</span>
+                            </div>
+                            <div className="schedule-course">{slot.course}</div>
                           </div>
-                          <div className="schedule-course">{slot.course}</div>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
                     <button onClick={() => void handleOpenQueue()} className="start-queue-btn" disabled={!selectedOfficeHourID}>
                       <span className="play-icon">▶</span>
@@ -741,14 +814,14 @@ export default function TADashboard() {
                               <div className="office-hour-actions queue-student-actions">
                                 {index === 0 && (
                                   <button
-                                    onClick={() => handleStartSession(student)}
+                                    onClick={() => void handleStartSession(student)}
                                     className="start-queue-btn queue-start-session-btn"
                                   >
                                     Start Session
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => handleRemoveStudent(student)}
+                                  onClick={() => void handleRemoveStudent(student)}
                                   className="cancel-btn queue-remove-btn"
                                 >
                                   Remove
@@ -831,7 +904,7 @@ export default function TADashboard() {
 
               <div className="announcement-modal-actions">
                 <button
-                  onClick={handleCopySessionLink}
+                  onClick={() => void handleCopySessionLink()}
                   className="announcement-cancel-btn"
                 >
                   Copy Link
@@ -891,7 +964,7 @@ export default function TADashboard() {
                   className="announcement-cancel-btn">
                   Cancel
                 </button>
-                <button onClick={handleSendAnnouncement}
+                <button onClick={() => void handleSendAnnouncement()}
                   className="start-queue-btn announcement-send-all-btn">
                   Send to All
                 </button>

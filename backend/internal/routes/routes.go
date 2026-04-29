@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"backend/internal/auth"
+	"backend/internal/studentschedule"
 	"backend/internal/course"
 	"backend/internal/httperr"
 	"backend/internal/officehour"
@@ -33,6 +34,8 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 	r.Get("/api/office-hours/course/{course_id}", officehour.ListByCourse(db))
 
 	r.Get("/api/queues/active", queue.GetActiveQueueByCourse(db))
+
+	r.Get("/api/courses", course.ListAll(db))
 
 	// SSE is public so unauthenticated browsers can subscribe.
 	r.Get("/api/queues/{id}/events", queue.StreamQueueEvents(queue.DefaultHub))
@@ -64,6 +67,10 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 
 		r.Post("/api/queues/{id}/join", queue.Join(db))
 		r.Post("/api/queues/{id}/leave", queue.Leave(db))
+
+		r.Post("/api/student/schedule", studentschedule.Add(db))
+		r.Get("/api/student/schedule", studentschedule.List(db))
+		r.Delete("/api/student/schedule/{id}", studentschedule.Remove(db))
 	})
 
 	// --- Authenticated: TA and student (own session history) ---
