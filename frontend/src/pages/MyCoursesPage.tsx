@@ -14,7 +14,7 @@ import {
   type ScheduleEntry,
 } from "../api/studentSchedule";
 
-const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'blue', 'orange'];
+const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'orange'];
 
 function formatTime(time: string): string {
   const [hours, minutes] = time.split(':');

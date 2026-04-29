@@ -32,7 +32,7 @@ interface CourseOption {
   dayOfWeek: number;
 }
 
-const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'blue', 'orange'];
+const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'orange'];
 
 function getCourseColor(courseID: number): string {
   return COURSE_COLORS[courseID % COURSE_COLORS.length];
