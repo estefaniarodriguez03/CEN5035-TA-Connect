@@ -46,6 +46,7 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole("ta"))
 
+		r.Put("/api/users/{id}/profile", auth.UpdateProfile(db))
 		r.Post("/api/office-hours", officehour.Create(db))
 		r.Put("/api/office-hours/{id}", officehour.Update(db))
 		r.Delete("/api/office-hours/{id}", officehour.Delete(db))
@@ -58,6 +59,7 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Post("/api/queues/{id}/session", queue.StartSession(db))
 		r.Post("/api/ta/courses", course.AddForTA(db))
 		r.Get("/api/ta/courses", course.ListForTA(db))
+		r.Delete("/api/ta/courses/{id}", course.DeleteForTA(db))
 	})
 
 	// --- Student-only routes ---

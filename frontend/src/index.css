@@ -2636,3 +2636,569 @@ body {
   color: var(--cool-grey-11);
   opacity: 0.7;
 }
+
+/* ─── Profile Page ────────────────────────────────────────────────────────── */
+
+.profile-page-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  background-color: transparent;
+  padding: 1rem 2rem 1rem 2rem;
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.profile-welcome-title {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: var(--core-blue);
+  margin-bottom: 2rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  text-align: center;
+  width: 100%;
+}
+
+.profile-card {
+  background: var(--white);
+  border: 3px solid var(--core-blue);
+  border-radius: 16px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 900px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.profile-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.profile-name {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--core-blue);
+  margin: 0;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.profile-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-value {
+  font-size: 1rem;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-courses-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-courses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-left: 0;
+}
+
+.course-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.course-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--gator);
+}
+
+.profile-card-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  justify-content: center;
+  align-items: stretch;
+  min-width: 200px;
+}
+
+.profile-edit-btn,
+.profile-logout-btn {
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.profile-edit-btn {
+  background-color: var(--core-orange);
+  color: var(--white);
+}
+
+.profile-edit-btn:hover {
+  background-color: #e63a0f;
+  transform: translateY(-2px);
+}
+
+.profile-logout-btn {
+  background-color: var(--white);
+  color: var(--bottlebrush);
+  border: 2px solid var(--bottlebrush);
+}
+
+.profile-logout-btn:hover {
+  background-color: #fff5f5;
+  transform: translateY(-2px);
+}
+
+.logout-icon {
+  font-size: 1.2rem;
+}
+
+/* Profile Edit Mode Styles */
+
+.profile-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  flex: 1;
+}
+
+.profile-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-form-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-form-input {
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--white);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.profile-form-input:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+}
+
+.profile-form-email-disabled {
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--cool-grey-3);
+}
+
+.profile-courses-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.profile-add-course-btn {
+  padding: 0.75rem 1.5rem;
+  background-color: var(--core-orange);
+  color: var(--white);
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.profile-add-course-btn:hover {
+  background-color: #e63a0f;
+}
+
+.profile-edit-courses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-edit-course-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--white);
+  border: 1px solid var(--cool-grey-3);
+  border-radius: 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.course-name {
+  flex: 1;
+  font-size: 1rem;
+  color: var(--cool-grey-11);
+}
+
+.profile-remove-course-btn {
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  color: var(--core-orange);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.profile-remove-course-btn:hover {
+  color: #e63a0f;
+}
+
+.profile-form-course-input {
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--white);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.profile-form-course-input:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+}
+
+.profile-card-edit-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  justify-content: center;
+  align-items: stretch;
+  min-width: 200px;
+}
+
+.profile-save-btn,
+.profile-cancel-btn {
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.profile-save-btn {
+  background-color: var(--core-orange);
+  color: var(--white);
+}
+
+.profile-save-btn:hover:not(:disabled) {
+  background-color: #e63a0f;
+  transform: translateY(-2px);
+}
+
+.profile-save-btn:disabled {
+  background-color: var(--cool-grey-3);
+  color: var(--cool-grey-11);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.profile-cancel-btn {
+  background-color: var(--white);
+  color: var(--cool-grey-11);
+  border: 1px solid var(--cool-grey-3);
+}
+
+.profile-cancel-btn:hover:not(:disabled) {
+  background-color: var(--cool-grey-3);
+  transform: translateY(-2px);
+}
+
+.profile-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .profile-page-container {
+    padding: 2rem 1rem;
+  }
+
+  .profile-welcome-title {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .profile-card {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 1.5rem;
+  }
+
+  .profile-card-buttons,
+  .profile-card-edit-buttons {
+    min-width: unset;
+    flex-direction: row;
+  }
+
+  .profile-edit-btn,
+  .profile-logout-btn,
+  .profile-save-btn,
+  .profile-cancel-btn {
+    flex: 1;
+  }
+
+  .profile-courses-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-add-course-btn {
+    align-self: flex-start;
+  }
+}
+
+/* Add Course Modal Styles */
+
+.add-course-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.add-course-modal-card {
+  background: var(--white);
+  border-radius: 16px;
+  max-width: 480px;
+  width: 100%;
+  margin: 0 1rem;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  padding: 0 0 1.5rem 0;
+}
+
+.add-course-modal-header {
+  background: linear-gradient(135deg, var(--core-blue) 0%, var(--dark-blue) 100%);
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.add-course-modal-title {
+  color: var(--white);
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.add-course-modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--white);
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.add-course-modal-close-btn:hover {
+  transform: scale(1.1);
+}
+
+.add-course-modal-body {
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.add-course-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.add-course-form-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.add-course-form-input {
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 0.95rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--white);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.add-course-form-input::placeholder {
+  color: var(--cool-grey-5);
+}
+
+.add-course-form-input:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+}
+
+.add-course-color-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.add-course-color-picker {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.add-course-color-option {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.add-course-color-option:hover {
+  transform: scale(1.08);
+}
+
+.add-course-color-option.selected {
+  border-color: var(--cool-grey-11);
+  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--cool-grey-11);
+}
+
+.add-course-modal-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.add-course-modal-add-btn {
+  padding: 0.875rem 2rem;
+  background-color: var(--core-blue);
+  color: var(--white);
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.add-course-modal-add-btn:hover {
+  background-color: #001a7a;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .add-course-modal-card {
+    margin: 0 1rem;
+  }
+
+  .add-course-modal-header {
+    padding: 1.25rem;
+  }
+
+  .add-course-modal-title {
+    font-size: 1.25rem;
+  }
+
+  .add-course-modal-body {
+    padding: 1.5rem 1.25rem;
+    gap: 1.25rem;
+  }
+
+  .add-course-color-picker {
+    gap: 0.75rem;
+  }
+
+  .add-course-color-option {
+    width: 48px;
+    height: 48px;
+  }
+}

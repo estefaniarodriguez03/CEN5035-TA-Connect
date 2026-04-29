@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"backend/internal/auth"
 	"backend/internal/httperr"
+	"github.com/go-chi/chi/v5"
 )
 
 type AddTACourseRequest struct {
@@ -141,6 +143,41 @@ func ListForTA(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+// DeleteForTA handles DELETE /api/ta/courses/{id}.
+// TA-only route: removes the authenticated TA's link to a course.
+func DeleteForTA(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims := auth.ClaimsFromContext(r.Context())
+
+		courseIDStr := chi.URLParam(r, "id")
+		courseID, err := strconv.Atoi(courseIDStr)
+		if err != nil {
+			httperr.Write(w, http.StatusBadRequest, "invalid_course_id", "invalid course ID", nil)
+			return
+		}
+
+		result, err := db.ExecContext(r.Context(), `
+			DELETE FROM ta_courses
+			WHERE ta_id = $1 AND course_id = $2
+		`, claims.UserID, courseID)
+		if err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+			return
+		}
+
+		if rowsAffected == 0 {
+			httperr.Write(w, http.StatusNotFound, "not_found", "course not linked to this TA", nil)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
 // ListAll handles GET /api/courses. Public route.
 func ListAll(db *sql.DB) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {

@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect, useMemo } from "react";
 import ufLogo from "../images/UF Logo.png";
@@ -30,7 +31,6 @@ function getCourseColor(courseID: number): string {
 }
 
 export default function MyCoursesPage() {
-  const { logout } = useAuth();
   const navigate = useNavigate();
 
   const [viewMode, setViewMode] = useState<'weekly' | 'today'>('weekly');
@@ -226,14 +226,13 @@ export default function MyCoursesPage() {
           <div className="nav-tabs">
             <button className="nav-tab" onClick={() => navigate('/student')}>Dashboard</button>
             <button className="nav-tab active">My Courses</button>
-            <button className="nav-tab">My Queue Status</button>
           </div>
         </div>
         <div className="navbar-right">
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={logout}>
+          <button className="profile-icon" onClick={() => navigate("/profile")}>
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>

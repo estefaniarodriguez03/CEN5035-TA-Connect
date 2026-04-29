@@ -53,7 +53,7 @@ function extractUpNextStudentID(payload: QueueEvent["payload"]): number | null {
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 export default function StudentDashboard() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -457,14 +457,13 @@ export default function StudentDashboard() {
           <div className="nav-tabs">
             <button className="nav-tab active">Dashboard</button>
             <button className="nav-tab" onClick={() => navigate("/student/my-courses")}>My Courses</button>
-            <button className="nav-tab">My Queue Status</button>
           </div>
         </div>
         <div className="navbar-right">
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={logout}>
+          <button className="profile-icon" onClick={() => navigate("/profile")}>
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>
