@@ -6,7 +6,7 @@ import whiteProfileIcon from "../images/White Profile Icon.png";
 interface TALayoutProps {
   children: React.ReactNode;
   sidebar?: React.ReactNode;
-  activeTab?: 'dashboard' | 'office-hours' | 'queue' | 'profile';
+  activeTab?: 'dashboard' | 'office-hours' | 'profile';
   onTabChange?: (tab: 'dashboard' | 'office-hours' | 'queue') => void;
 }
 
@@ -34,12 +34,6 @@ export default function TALayout({ children, sidebar, activeTab = 'dashboard', o
               onClick={() => onTabChange?.('office-hours')}
             >
               My Office Hours
-            </button>
-            <button
-              className={`nav-tab ${activeTab === 'queue' ? 'active' : ''}`}
-              onClick={() => onTabChange?.('queue')}
-            >
-              Queue
             </button>
           </div>
         </div>

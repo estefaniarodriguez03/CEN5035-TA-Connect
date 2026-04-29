@@ -12,6 +12,28 @@ interface Course extends TACourse {
 
 const COURSE_COLORS = ["#FA4616", "#0021A5", "#E21C3D", "#F7A600", "#2D6A4F", "#6A2A60"];
 
+const HEX_TO_COLOR: Record<string, string> = {
+  "#FA4616": "orange",
+  "#0021A5": "blue",
+  "#E21C3D": "red",
+  "#F7A600": "yellow",
+  "#2D6A4F": "green",
+  "#6A2A60": "purple",
+};
+
+const COLOR_NAME_TO_HEX: Record<string, string> = {
+  "orange": "#FA4616",
+  "blue": "#0021A5",
+  "red": "#E21C3D",
+  "yellow": "#F7A600",
+  "green": "#2D6A4F",
+  "purple": "#6A2A60",
+};
+
+function getColorName(hexColor: string): string {
+  return HEX_TO_COLOR[hexColor.toUpperCase()] || "orange";
+}
+
 export default function ProfilePage() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
@@ -31,13 +53,16 @@ export default function ProfilePage() {
     void (async () => {
       try {
         const courses = await listMyTACourses();
-        // Assign random colors to courses
-        const coursesWithColors = courses.map(course => ({
-          ...course,
-          color: COURSE_COLORS[Math.floor(Math.random() * COURSE_COLORS.length)]
-        }));
-        setEditCourses(coursesWithColors);
-        setOriginalCourses(coursesWithColors);
+        // Convert database colors (orange, blue, etc.) to hex colors for UI
+        const coursesWithHexColors = courses.map(course => {
+          const hexColor = course.color ? COLOR_NAME_TO_HEX[course.color.toLowerCase()] ?? "#FA4616" : "#FA4616";
+          return {
+            ...course,
+            color: hexColor
+          };
+        });
+        setEditCourses(coursesWithHexColors);
+        setOriginalCourses(coursesWithHexColors);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to load courses';
         toast.error(message);
@@ -126,13 +151,9 @@ export default function ProfilePage() {
     }
 
     try {
-      const course = await addMyTACourse(code, name);
-      const newCourse: Course = {
-        ...course,
-        color: selectedColor,
-      };
-      
-      setEditCourses([...editCourses, newCourse]);
+      const colorName = getColorName(selectedColor);
+      const course = await addMyTACourse(code, name, colorName);
+      setEditCourses([...editCourses, { ...course, color: selectedColor }]);
       setNewCourseCode("");
       setNewCourseName("");
       setSelectedColor("#FA4616");
@@ -324,7 +345,7 @@ export default function ProfilePage() {
                   className="add-course-modal-add-btn"
                   onClick={handleAddCourse}
                 >
-                  + Add Course
+                  Add Course
                 </button>
               </div>
             </div>

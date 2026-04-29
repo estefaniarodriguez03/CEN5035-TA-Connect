@@ -6,6 +6,7 @@ export interface TACourse {
   id: number;
   code: string;
   name: string;
+  color?: string;
 }
 
 function getAuthHeaders(): HeadersInit {
@@ -28,11 +29,11 @@ export async function listMyTACourses(): Promise<TACourse[]> {
   return body.courses ?? [];
 }
 
-export async function addMyTACourse(code: string, name?: string): Promise<TACourse> {
+export async function addMyTACourse(code: string, name?: string, color?: string): Promise<TACourse> {
   const res = await fetch(`${BASE_URL}/api/ta/courses`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ code, name: name ?? '' }),
+    body: JSON.stringify({ code, name: name ?? '', color: color ?? 'orange' }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

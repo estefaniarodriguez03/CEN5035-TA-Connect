@@ -469,7 +469,7 @@ export default function StudentDashboard() {
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={() => navigate("/profile")}>
+          <button className="profile-icon" onClick={() => navigate("/student/profile")}>
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>

@@ -18,6 +18,7 @@ type ScheduleEntry struct {
     CourseID      int    `json:"course_id"`
     CourseCode    string `json:"course_code"`
     CourseName    string `json:"course_name"`
+    CourseColor   string `json:"course_color"`
     TAUsername    string `json:"ta_username"`
     TAID          int    `json:"ta_id"`
     DayOfWeek     int    `json:"day_of_week"`
@@ -79,7 +80,7 @@ func List(db *sql.DB) http.HandlerFunc {
         claims := auth.ClaimsFromContext(r.Context())
 
         rows, err := db.QueryContext(r.Context(), `
-            SELECT soh.id, oh.id, oh.course_id, c.code, c.name,
+            SELECT soh.id, oh.id, oh.course_id, c.code, c.name, COALESCE(c.color, 'orange'),
                    u.username, oh.ta_id, oh.day_of_week,
                    oh.start_time::text, oh.end_time::text, oh.location
             FROM student_office_hours soh
@@ -100,7 +101,7 @@ func List(db *sql.DB) http.HandlerFunc {
             var e ScheduleEntry
             var startOut, endOut string
             if err := rows.Scan(
-                &e.ID, &e.OfficeHourID, &e.CourseID, &e.CourseCode, &e.CourseName,
+                &e.ID, &e.OfficeHourID, &e.CourseID, &e.CourseCode, &e.CourseName, &e.CourseColor,
                 &e.TAUsername, &e.TAID, &e.DayOfWeek,
                 &startOut, &endOut, &e.Location,
             ); err != nil {

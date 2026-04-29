@@ -17,12 +17,14 @@ type AddTACourseRequest struct {
     CourseID int    `json:"course_id"`
     Code     string `json:"code"`
     Name     string `json:"name"`
+    Color    string `json:"color"`
 }
 
 type Course struct {
-    ID   int    `json:"id"`
-    Code string `json:"code"`
-    Name string `json:"name"`
+    ID    int    `json:"id"`
+    Code  string `json:"code"`
+    Name  string `json:"name"`
+    Color string `json:"color"`
 }
 
 // AddForTA handles POST /api/ta/courses.
@@ -40,6 +42,10 @@ func AddForTA(db *sql.DB) http.HandlerFunc {
 
         code := strings.ToUpper(strings.TrimSpace(req.Code))
         name := strings.TrimSpace(req.Name)
+        color := strings.ToLower(strings.TrimSpace(req.Color))
+        if color == "" {
+            color = "orange"
+        }
 
         if req.CourseID <= 0 && code == "" {
             httperr.Write(w, http.StatusBadRequest, "missing_course_reference", "provide course_id or code", nil)
@@ -68,11 +74,11 @@ func AddForTA(db *sql.DB) http.HandlerFunc {
                 name = code
             }
             if err := tx.QueryRowContext(r.Context(), `
-                INSERT INTO courses (code, name)
-                VALUES ($1, $2)
-                ON CONFLICT (code) DO UPDATE SET name = CASE WHEN courses.name = '' THEN EXCLUDED.name ELSE courses.name END
+                INSERT INTO courses (code, name, color)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (code) DO UPDATE SET name = CASE WHEN courses.name = '' THEN EXCLUDED.name ELSE courses.name END, color = CASE WHEN courses.color = 'orange' THEN EXCLUDED.color ELSE courses.color END
                 RETURNING id
-            `, code, name).Scan(&courseID); err != nil {
+            `, code, name, color).Scan(&courseID); err != nil {
                 httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
                 return
             }
@@ -89,8 +95,8 @@ func AddForTA(db *sql.DB) http.HandlerFunc {
 
         var course Course
         if err := tx.QueryRowContext(r.Context(), `
-            SELECT id, code, name FROM courses WHERE id = $1
-        `, courseID).Scan(&course.ID, &course.Code, &course.Name); err != nil {
+            SELECT id, code, name, COALESCE(color, 'orange') FROM courses WHERE id = $1
+        `, courseID).Scan(&course.ID, &course.Code, &course.Name, &course.Color); err != nil {
             httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
             return
         }
@@ -114,7 +120,7 @@ func ListForTA(db *sql.DB) http.HandlerFunc {
         claims := auth.ClaimsFromContext(r.Context())
 
         rows, err := db.QueryContext(r.Context(), `
-            SELECT c.id, c.code, c.name
+            SELECT c.id, c.code, c.name, COALESCE(c.color, 'orange')
             FROM ta_courses tc
             JOIN courses c ON c.id = tc.course_id
             WHERE tc.ta_id = $1
@@ -129,7 +135,7 @@ func ListForTA(db *sql.DB) http.HandlerFunc {
         out := make([]Course, 0)
         for rows.Next() {
             var c Course
-            if err := rows.Scan(&c.ID, &c.Code, &c.Name); err != nil {
+            if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.Color); err != nil {
                 httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
                 return
             }
@@ -146,6 +152,7 @@ func ListForTA(db *sql.DB) http.HandlerFunc {
 
 // DeleteForTA handles DELETE /api/ta/courses/{id}.
 // TA-only route: removes the authenticated TA's link to a course.
+// If no other TAs have this course, deletes it from the database entirely.
 func DeleteForTA(db *sql.DB) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         claims := auth.ClaimsFromContext(r.Context())
@@ -157,7 +164,16 @@ func DeleteForTA(db *sql.DB) http.HandlerFunc {
             return
         }
 
-        result, err := db.ExecContext(r.Context(), `
+        // Start transaction to ensure atomic operations
+        tx, err := db.BeginTx(r.Context(), nil)
+        if err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
+        defer tx.Rollback()
+
+        // Delete the TA-course link
+        result, err := tx.ExecContext(r.Context(), `
             DELETE FROM ta_courses
             WHERE ta_id = $1 AND course_id = $2
         `, claims.UserID, courseID)
@@ -177,15 +193,71 @@ func DeleteForTA(db *sql.DB) http.HandlerFunc {
             return
         }
 
+        // Check if any other TAs have this course
+        var otherTACount int
+        if err := tx.QueryRowContext(r.Context(), `
+            SELECT COUNT(*) FROM ta_courses WHERE course_id = $1
+        `, courseID).Scan(&otherTACount); err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
+
+        // If no other TAs have this course, delete it from the database
+        if otherTACount == 0 {
+            // Delete student office hours for this course
+            if _, err := tx.ExecContext(r.Context(), `
+                DELETE FROM student_office_hours
+                WHERE office_hour_id IN (
+                    SELECT id FROM office_hours WHERE course_id = $1
+                )
+            `, courseID); err != nil {
+                httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+                return
+            }
+
+            // Delete office hours for this course
+            if _, err := tx.ExecContext(r.Context(), `
+                DELETE FROM office_hours WHERE course_id = $1
+            `, courseID); err != nil {
+                httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+                return
+            }
+
+            // Delete student courses for this course
+            if _, err := tx.ExecContext(r.Context(), `
+                DELETE FROM student_courses WHERE course_id = $1
+            `, courseID); err != nil {
+                httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+                return
+            }
+
+            // Delete the course itself
+            if _, err := tx.ExecContext(r.Context(), `
+                DELETE FROM courses WHERE id = $1
+            `, courseID); err != nil {
+                httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+                return
+            }
+        }
+
+        if err := tx.Commit(); err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
+
         w.WriteHeader(http.StatusNoContent)
     }
 }
 
 // ListAll handles GET /api/courses. Public route.
+// Returns only courses that have at least one TA assigned.
 func ListAll(db *sql.DB) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         rows, err := db.QueryContext(r.Context(), `
-            SELECT id, code, name FROM courses ORDER BY code ASC
+            SELECT DISTINCT c.id, c.code, c.name, COALESCE(c.color, 'orange')
+            FROM courses c
+            JOIN ta_courses tc ON tc.course_id = c.id
+            ORDER BY c.code ASC
         `)
         if err != nil {
             httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
@@ -196,7 +268,7 @@ func ListAll(db *sql.DB) http.HandlerFunc {
         out := make([]Course, 0)
         for rows.Next() {
             var c Course
-            if err := rows.Scan(&c.ID, &c.Code, &c.Name); err != nil {
+            if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.Color); err != nil {
                 httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
                 return
             }

@@ -5,7 +5,7 @@ import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
-import { listAllCourses, type TACourse } from "../api/courses";
+import { getStudentCourses, type StudentCourse } from "../api/studentCourses";
 import { listOfficeHoursByCourse, DAY_NAMES, type OfficeHour } from "../api/officeHours";
 import {
   listStudentSchedule,
@@ -14,7 +14,6 @@ import {
   type ScheduleEntry,
 } from "../api/studentSchedule";
 
-const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'orange'];
 
 function formatTime(time: string): string {
   const [hours, minutes] = time.split(':');
@@ -24,8 +23,8 @@ function formatTime(time: string): string {
   return `${displayHour}:${minutes} ${ampm}`;
 }
 
-function getCourseColor(courseID: number): string {
-  return COURSE_COLORS[courseID % COURSE_COLORS.length];
+function getCourseColor(courseColor: string): string {
+  return courseColor || 'orange';
 }
 
 export default function MyCoursesPage() {
@@ -39,7 +38,7 @@ export default function MyCoursesPage() {
   const [loadingSchedule, setLoadingSchedule] = useState(true);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [allCourses, setAllCourses] = useState<TACourse[]>([]);
+  const [studentCourses, setStudentCourses] = useState<StudentCourse[]>([]);
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
   const [courseOfficeHours, setCourseOfficeHours] = useState<OfficeHour[]>([]);
   const [selectedOfficeHourID, setSelectedOfficeHourID] = useState<number | null>(null);
@@ -63,19 +62,16 @@ export default function MyCoursesPage() {
     })();
   }, []);
 
-  // Load all courses when modal opens
+  // Load student's enrolled courses when modal opens
   useEffect(() => {
     if (!showAddModal) return;
     void (async () => {
       setLoadingCourses(true);
       try {
-        const courses = await listAllCourses();
-        const real = courses.filter(
-          (c) => !c.code.startsWith('AUTO-') && !c.code.startsWith('LEGACY-')
-        );
-        setAllCourses(real);
+        const courses = await getStudentCourses();
+        setStudentCourses(courses);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to load courses');
+        toast.error(error instanceof Error ? error.message : 'Failed to load your courses');
       } finally {
         setLoadingCourses(false);
       }
@@ -230,7 +226,7 @@ export default function MyCoursesPage() {
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={() => navigate("/profile")}>
+          <button className="profile-icon" onClick={() => navigate("/student/profile")}>
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>
@@ -316,7 +312,7 @@ export default function MyCoursesPage() {
                       {filteredSchedule
                         .filter((e) => e.day_of_week === dayIndex)
                         .map((e) => (
-                          <div key={e.id} className={`time-slot slot-${getCourseColor(e.course_id)}`}>
+                          <div key={e.id} className={`time-slot slot-${getCourseColor(e.course_color)}`}>
                             <button
                               className="delete-btn"
                               onClick={() => void handleRemoveFromSchedule(e.id)}
@@ -341,7 +337,7 @@ export default function MyCoursesPage() {
             <div className="course-legend">
               {Array.from(new Map(schedule.map((e) => [e.course_id, e])).values()).map((e) => (
                 <div key={e.course_id} className="legend-item">
-                  <span className={`legend-color legend-${getCourseColor(e.course_id)}`}></span>
+                  <span className={`legend-color legend-${getCourseColor(e.course_color)}`}></span>
                   <span>{e.course_code} - {e.course_name}</span>
                 </div>
               ))}
@@ -372,7 +368,7 @@ export default function MyCoursesPage() {
                     >
                       ×
                     </button>
-                    <div className={`course-badge badge-${getCourseColor(e.course_id)}`}>
+                    <div className={`course-badge badge-${getCourseColor(e.course_color)}`}>
                       {e.course_code}
                     </div>
                     <h3 className="course-card-title">{e.course_name}</h3>
@@ -429,7 +425,7 @@ export default function MyCoursesPage() {
                     }}
                   >
                     <option value="">Select a course...</option>
-                    {allCourses.map((c) => (
+                    {studentCourses.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.code}{c.name ? ` - ${c.name}` : ''}
                       </option>

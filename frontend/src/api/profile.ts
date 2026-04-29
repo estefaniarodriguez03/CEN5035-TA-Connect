@@ -8,6 +8,8 @@ export interface Course {
 
 export interface UpdateProfileRequest {
   username?: string;
+  major?: string;
+  year?: string;
   courses?: Course[];
 }
 
@@ -16,6 +18,8 @@ export interface UpdateProfileResponse {
   username: string;
   email: string;
   role: string;
+  major?: string;
+  year?: string;
   courses?: Course[];
 }
 

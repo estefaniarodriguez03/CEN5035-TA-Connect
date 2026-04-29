@@ -15,6 +15,8 @@ import (
 // UpdateProfileRequest is the JSON body for PUT /api/users/{id}/profile.
 type UpdateProfileRequest struct {
     Username string `json:"username"`
+    Major    string `json:"major"`
+    Year     string `json:"year"`
     Courses  []struct {
         ID   int    `json:"id"`
         Code string `json:"code"`
@@ -28,6 +30,8 @@ type UpdateProfileResponse struct {
     Username string `json:"username"`
     Email    string `json:"email"`
     Role     string `json:"role"`
+    Major    string `json:"major"`
+    Year     string `json:"year"`
 }
 
 // UpdateProfile handles PUT /api/users/{id}/profile.
@@ -67,7 +71,7 @@ func UpdateProfile(db *sql.DB) http.HandlerFunc {
             return
         }
 
-        // Fetch current username to check if it has changed
+        // Fetch current user info
         var currentUsername string
         if err := db.QueryRowContext(r.Context(),
             "SELECT username FROM users WHERE id = $1", userID,
@@ -87,16 +91,16 @@ func UpdateProfile(db *sql.DB) http.HandlerFunc {
                 httperr.Write(w, http.StatusConflict, "username_taken", "username is already taken", nil)
                 return
             }
+        }
 
-            // Update username
-            if _, err := db.ExecContext(r.Context(),
-                "UPDATE users SET username = $1 WHERE id = $2",
-                req.Username, userID,
-            ); err != nil {
-                log.Printf("UpdateProfile exec error: %v", err)
-                httperr.Write(w, http.StatusInternalServerError, "db_error", "failed to update profile", nil)
-                return
-            }
+        // Update username, major, and year
+        if _, err := db.ExecContext(r.Context(),
+            "UPDATE users SET username = $1, major = $2, year = $3 WHERE id = $4",
+            req.Username, req.Major, req.Year, userID,
+        ); err != nil {
+            log.Printf("UpdateProfile exec error: %v", err)
+            httperr.Write(w, http.StatusInternalServerError, "db_error", "failed to update profile", nil)
+            return
         }
 
         // Fetch updated user info
@@ -105,10 +109,12 @@ func UpdateProfile(db *sql.DB) http.HandlerFunc {
             Username string
             Email    string
             Role     string
+            Major    string
+            Year     string
         }
         if err := db.QueryRowContext(r.Context(),
-            "SELECT id, username, email, role FROM users WHERE id = $1", userID,
-        ).Scan(&user.ID, &user.Username, &user.Email, &user.Role); err != nil {
+            "SELECT id, username, email, role, major, year FROM users WHERE id = $1", userID,
+        ).Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.Major, &user.Year); err != nil {
             if err == sql.ErrNoRows {
                 httperr.Write(w, http.StatusNotFound, "not_found", "user not found", nil)
                 return
@@ -124,6 +130,8 @@ func UpdateProfile(db *sql.DB) http.HandlerFunc {
             Username: user.Username,
             Email:    user.Email,
             Role:     user.Role,
+            Major:    user.Major,
+            Year:     user.Year,
         })
     }
 }

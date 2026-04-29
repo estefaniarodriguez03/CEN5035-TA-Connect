@@ -13,13 +13,16 @@ CREATE TABLE IF NOT EXISTS users (
 	classcode TEXT[] NOT NULL DEFAULT '{}',
 	role TEXT NOT NULL,
 	average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
-	session_sample_count INT NOT NULL DEFAULT 0
+	session_sample_count INT NOT NULL DEFAULT 0,
+	major TEXT DEFAULT '',
+	year TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS courses (
 	id SERIAL PRIMARY KEY,
 	code TEXT NOT NULL UNIQUE,
 	name TEXT NOT NULL DEFAULT '',
+	color TEXT DEFAULT 'orange',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -32,6 +35,16 @@ CREATE TABLE IF NOT EXISTS ta_courses (
 
 CREATE INDEX IF NOT EXISTS idx_ta_courses_ta_id ON ta_courses(ta_id);
 CREATE INDEX IF NOT EXISTS idx_ta_courses_course_id ON ta_courses(course_id);
+
+CREATE TABLE IF NOT EXISTS student_courses (
+	student_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	course_id INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	PRIMARY KEY (student_id, course_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_courses_student_id ON student_courses(student_id);
+CREATE INDEX IF NOT EXISTS idx_student_courses_course_id ON student_courses(course_id);
 
 CREATE TABLE IF NOT EXISTS queues (
 	id SERIAL PRIMARY KEY,
@@ -129,6 +142,8 @@ CREATE INDEX IF NOT EXISTS idx_session_logs_start_time ON session_logs(start_tim
 	const alter = `
 ALTER TABLE users ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS major TEXT DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS year TEXT DEFAULT '';
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS last_served_at TIMESTAMPTZ;
@@ -136,6 +151,7 @@ ALTER TABLE queues ADD COLUMN IF NOT EXISTS serving_student_id INT REFERENCES us
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS code TEXT;
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS color TEXT DEFAULT 'orange';
 
 UPDATE courses
 SET code = 'COURSE-' || id::text
@@ -215,6 +231,77 @@ BEGIN
 		EXECUTE FUNCTION ensure_ta_role_for_ta_courses();
 	END IF;
 END $$;
+
+-- Clean up legacy and auto-generated courses with no TAs
+-- Must delete in correct dependency order
+
+-- Delete queue entries for queues with orphaned courses
+DELETE FROM queue_entries
+WHERE queue_id IN (
+	SELECT q.id FROM queues q
+	WHERE q.course_id NOT IN (
+		SELECT DISTINCT course_id FROM ta_courses
+	)
+	AND q.course_id != 0
+);
+
+-- Delete queue announcements for queues with orphaned courses
+DELETE FROM queue_announcements
+WHERE queue_id IN (
+	SELECT q.id FROM queues q
+	WHERE q.course_id NOT IN (
+		SELECT DISTINCT course_id FROM ta_courses
+	)
+	AND q.course_id != 0
+);
+
+-- Delete sessions for queues with orphaned courses
+DELETE FROM sessions
+WHERE queue_id IN (
+	SELECT q.id FROM queues q
+	WHERE q.course_id NOT IN (
+		SELECT DISTINCT course_id FROM ta_courses
+	)
+	AND q.course_id != 0
+);
+
+-- Delete queues with orphaned courses
+DELETE FROM queues
+WHERE course_id NOT IN (
+	SELECT DISTINCT course_id FROM ta_courses
+)
+AND course_id != 0;
+
+-- Delete student office hours for orphaned courses
+DELETE FROM student_office_hours
+WHERE office_hour_id IN (
+	SELECT o.id FROM office_hours o
+	WHERE o.course_id NOT IN (
+		SELECT DISTINCT course_id FROM ta_courses
+	)
+	AND o.course_id != 0
+);
+
+-- Delete office hours for orphaned courses
+DELETE FROM office_hours
+WHERE course_id NOT IN (
+	SELECT DISTINCT course_id FROM ta_courses
+)
+AND course_id != 0;
+
+-- Delete student courses for orphaned courses
+DELETE FROM student_courses
+WHERE course_id NOT IN (
+	SELECT DISTINCT course_id FROM ta_courses
+)
+AND course_id != 0;
+
+-- Finally delete orphaned courses
+DELETE FROM courses
+WHERE id NOT IN (
+	SELECT DISTINCT course_id FROM ta_courses
+)
+AND id != 0;
 `
 	_, err = db.Exec(alter)
 	return err
