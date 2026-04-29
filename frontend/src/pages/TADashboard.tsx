@@ -10,6 +10,7 @@ import whiteProfileIcon from "../images/White Profile Icon.png";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { clearActiveQueueForCourse, clearActiveQueueForOfficeHour, createQueue, getActiveQueueByCourse, getQueueOrNull, nextQueueStudent, postQueueAnnouncement, setActiveQueueForCourse, setActiveQueueForOfficeHour, startSession, subscribeToQueueEvents, updateQueueState } from "../api/queue";
+import { addMyTACourse, listMyTACourses, type TACourse } from "../api/courses";
 import type {
   NextQueueError,
   QueueStatus,
@@ -59,6 +60,9 @@ export default function TADashboard() {
     session: StartSessionResponse;
     studentName: string;
   } | null>(null);
+  const [taCourses, setTACourses] = useState<TACourse[]>([]);
+  const [newCourseCode, setNewCourseCode] = useState('');
+  const [newCourseName, setNewCourseName] = useState('');
 
   // TA dashboard currently operates on one selected office hour at a time.
 
@@ -142,6 +146,19 @@ export default function TADashboard() {
   };
 
   const sortedQueue = [...queueStudents].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
+
+  useEffect(() => {
+    if (user?.role !== 'ta') return;
+    void (async () => {
+      try {
+        const courses = await listMyTACourses();
+        setTACourses(courses);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load courses';
+        toast.info(message);
+      }
+    })();
+  }, [user?.role]);
 
   // Recompute live wait-time labels every 15 seconds.
   useEffect(() => {
@@ -380,6 +397,28 @@ export default function TADashboard() {
     }
   };
 
+  const handleAddCourse = async () => {
+    const code = newCourseCode.trim().toUpperCase();
+    const name = newCourseName.trim();
+    if (!code) {
+      toast.info('Enter a course code');
+      return;
+    }
+    try {
+      const course = await addMyTACourse(code, name);
+      setTACourses((prev) => {
+        if (prev.some((c) => c.id === course.id)) return prev;
+        return [...prev, course].sort((a, b) => a.code.localeCompare(b.code));
+      });
+      setNewCourseCode('');
+      setNewCourseName('');
+      toast.success(`Added ${course.code} to your courses`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to add course';
+      toast.info(message);
+    }
+  };
+
   const officeHoursSidebar = (
     <div className="office-hours-list">
       {weeklyOfficeHours.map((hour) => (
@@ -486,6 +525,40 @@ export default function TADashboard() {
                       <span className="play-icon">▶</span>
                       {selectedOfficeHourID ? 'Start Office Hours Live Queue' : 'Select Time to Start Live Queue'}
                     </button>
+
+                    <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
+                      <h3 style={{ margin: 0, marginBottom: '0.75rem', fontSize: '1rem' }}>My Courses</h3>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                        <input
+                          type="text"
+                          placeholder="Course code (e.g. CEN5035)"
+                          value={newCourseCode}
+                          onChange={(e) => setNewCourseCode(e.target.value)}
+                          style={{ padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 8, minWidth: 220 }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Course name (optional)"
+                          value={newCourseName}
+                          onChange={(e) => setNewCourseName(e.target.value)}
+                          style={{ padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 8, minWidth: 260 }}
+                        />
+                        <button onClick={() => void handleAddCourse()} className="start-queue-btn" style={{ height: 38 }}>
+                          Add Course
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {taCourses.length === 0 ? (
+                          <span style={{ color: '#6b7280' }}>No courses linked yet.</span>
+                        ) : (
+                          taCourses.map((course) => (
+                            <span key={course.id} style={{ fontSize: '0.875rem', background: '#f3f4f6', borderRadius: 999, padding: '0.3rem 0.65rem' }}>
+                              {course.code}{course.name ? ` - ${course.name}` : ''}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Stats Grid */}

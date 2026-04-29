@@ -16,6 +16,23 @@ CREATE TABLE IF NOT EXISTS users (
 	session_sample_count INT NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS courses (
+	id SERIAL PRIMARY KEY,
+	code TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ta_courses (
+	ta_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	course_id INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	PRIMARY KEY (ta_id, course_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ta_courses_ta_id ON ta_courses(ta_id);
+CREATE INDEX IF NOT EXISTS idx_ta_courses_course_id ON ta_courses(course_id);
+
 CREATE TABLE IF NOT EXISTS queues (
 	id SERIAL PRIMARY KEY,
 	course_id INT NOT NULL DEFAULT 0,
@@ -106,6 +123,88 @@ ALTER TABLE queues ADD COLUMN IF NOT EXISTS average_session_duration_seconds DOU
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS session_sample_count INT NOT NULL DEFAULT 0;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS last_served_at TIMESTAMPTZ;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS serving_student_id INT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+UPDATE courses
+SET code = 'COURSE-' || id::text
+WHERE code IS NULL OR code = '';
+
+ALTER TABLE courses ALTER COLUMN code SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_code_unique ON courses(code);
+
+-- Ensure a legacy default course row exists because older codepaths used course_id=0.
+INSERT INTO courses (id, code, name)
+VALUES (0, 'LEGACY-0', 'Legacy Course')
+ON CONFLICT (id) DO NOTHING;
+
+-- Backfill referenced course ids seen in existing rows so FK constraints can be added safely.
+INSERT INTO courses (id, code, name)
+SELECT DISTINCT q.course_id, 'AUTO-' || q.course_id::text, 'Auto-created course ' || q.course_id::text
+FROM queues q
+LEFT JOIN courses c ON c.id = q.course_id
+WHERE q.course_id IS NOT NULL AND c.id IS NULL
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO courses (id, code, name)
+SELECT DISTINCT o.course_id, 'AUTO-' || o.course_id::text, 'Auto-created course ' || o.course_id::text
+FROM office_hours o
+LEFT JOIN courses c ON c.id = o.course_id
+WHERE o.course_id IS NOT NULL AND c.id IS NULL
+ON CONFLICT (id) DO NOTHING;
+
+SELECT setval(
+	pg_get_serial_sequence('courses', 'id'),
+	COALESCE((SELECT MAX(id) FROM courses), 1),
+	true
+);
+
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint WHERE conname = 'fk_queues_course_id'
+	) THEN
+		ALTER TABLE queues
+		ADD CONSTRAINT fk_queues_course_id
+		FOREIGN KEY (course_id) REFERENCES courses(id);
+	END IF;
+END $$;
+
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint WHERE conname = 'fk_office_hours_course_id'
+	) THEN
+		ALTER TABLE office_hours
+		ADD CONSTRAINT fk_office_hours_course_id
+		FOREIGN KEY (course_id) REFERENCES courses(id);
+	END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION ensure_ta_role_for_ta_courses() RETURNS trigger AS $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM users u
+		WHERE u.id = NEW.ta_id AND u.role = 'ta'
+	) THEN
+		RAISE EXCEPTION 'ta_courses.ta_id % does not reference a TA user', NEW.ta_id;
+	END IF;
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_trigger WHERE tgname = 'trg_ta_courses_ta_role'
+	) THEN
+		CREATE TRIGGER trg_ta_courses_ta_role
+		BEFORE INSERT OR UPDATE ON ta_courses
+		FOR EACH ROW
+		EXECUTE FUNCTION ensure_ta_role_for_ta_courses();
+	END IF;
+END $$;
 `
 	_, err = db.Exec(alter)
 	return err
