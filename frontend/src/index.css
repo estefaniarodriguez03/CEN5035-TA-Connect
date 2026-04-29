@@ -2671,7 +2671,7 @@ body {
   align-items: center;
   justify-content: flex-start;
   background-color: transparent;
-  padding: 1rem 2rem 1rem 2rem;
+  padding: 0.25rem 2rem 1rem 2rem;
   width: 100%;
   grid-column: 1 / -1;
 }
@@ -3226,5 +3226,632 @@ body {
   .add-course-color-option {
     width: 48px;
     height: 48px;
+  }
+}
+
+/* Student Profile Page Styles */
+.student-profile-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  width: 100%;
+  flex: 1;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.profile-header {
+  text-align: center;
+  margin-bottom: 1rem;
+  width: 100%;
+}
+
+.profile-title {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: var(--core-blue);
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.profile-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3rem;
+  align-items: center;
+  background: var(--white);
+  border-radius: 16px;
+  padding: 2rem;
+  border: 3px solid var(--core-blue);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  width: 100%;
+}
+
+.profile-info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.profile-name {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--core-blue);
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.profile-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-detail-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-detail-label {
+  font-weight: 600;
+  color: var(--cool-grey-11);
+}
+
+.profile-detail-value {
+  color: var(--cool-grey-11);
+  font-weight: 400;
+}
+
+.profile-courses-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-courses-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.profile-courses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-left: 0;
+}
+
+.profile-course-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-course-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.profile-course-dot[data-color="green"] {
+  background-color: var(--gator);
+}
+
+.profile-course-dot[data-color="purple"] {
+  background-color: var(--perennial);
+}
+
+.profile-course-dot[data-color="yellow"] {
+  background-color: var(--alachua);
+}
+
+.profile-course-dot[data-color="red"] {
+  background-color: var(--bottlebrush);
+}
+
+.profile-course-dot[data-color="orange"] {
+  background-color: var(--core-orange);
+}
+
+.profile-course-text {
+  color: var(--black);
+}
+
+.profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: stretch;
+  min-width: 200px;
+}
+
+.profile-edit-btn,
+.profile-logout-btn {
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  text-decoration: nonerap;
+  min-width: 180px;
+}
+
+.profile-edit-btn {
+  background-color: var(--core-orange);
+  color: var(--white);
+}
+
+.profile-edit-btn:hover {
+  background-color: #e63a0f;
+  transform: translateY(-2px);
+}
+
+.profile-logout-btn {
+  background-color: var(--white);
+  color: var(--core-orange);
+  border: 2px solid var(--core-orange);
+}
+
+.profile-logout-btn:hover {
+  background-color: rgba(250, 70, 22, 0.05);
+  transform: translateY(-2px);
+}
+
+/* Student Profile Edit Mode */
+.profile-card-edit {
+  grid-template-columns: 1fr 180px;
+  padding: 2rem;
+}
+
+.profile-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.profile-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-form-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-form-input {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--white);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.profile-form-input:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+}
+
+.profile-form-input:disabled {
+  background-color: #f5f5f5;
+  color: var(--cool-grey-11);
+  cursor: not-allowed;
+}
+
+.profile-form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.25rem;
+  padding-right: 2.5rem;
+}
+
+.profile-courses-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.profile-add-course-btn {
+  padding: 0.5rem 1rem;
+  background-color: var(--core-orange);
+  color: var(--white);
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.profile-add-course-btn:hover {
+  background-color: #e63a0f;
+}
+
+.profile-edit-course-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--white);
+  border: 1px solid var(--cool-grey-3);
+  border-radius: 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.profile-edit-course-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.profile-remove-course-btn {
+  padding: 0.25rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--core-orange);
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.profile-remove-course-btn:hover {
+  color: #e63a0f;
+}
+
+.profile-new-course-inputs {
+  display: flex;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--cool-grey-3);
+}
+
+.profile-new-course-inputs .profile-form-input {
+  flex: 1;
+}
+
+.profile-edit-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  justify-content: flex-start;
+  min-width: 180px;
+}
+
+.profile-save-btn,
+.profile-cancel-btn {
+  padding: 0.875rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.profile-save-btn {
+  background-color: var(--core-orange);
+  color: var(--white);
+}
+
+.profile-save-btn:hover {
+  background-color: #e63a0f;
+  transform: translateY(-2px);
+}
+
+.profile-cancel-btn {
+  background-color: var(--white);
+  color: var(--cool-grey-11);
+  border: 1px solid var(--cool-grey-3);
+}
+
+.profile-cancel-btn:hover {
+  background-color: var(--cool-grey-3);
+  transform: translateY(-2px);
+}
+
+/* Add Course Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.add-course-modal {
+  background: var(--white);
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  width: 90%;
+  max-width: 550px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header-blue {
+  background-color: var(--core-blue);
+  padding: 1.75rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.modal-title-white {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--white);
+  font-family: 'IBM Plex Sans', sans-serif;
+  margin: 0;
+}
+
+.modal-close-btn-white {
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  color: var(--white);
+  cursor: pointer;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
+}
+
+.modal-close-btn-white:hover {
+  opacity: 0.8;
+}
+
+.modal-body {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal-subtitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cool-grey-11);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.modal-select-blue {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--white);
+  outline: none;
+  transition: border-color 0.2s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.25rem;
+  padding-right: 2.5rem;
+  cursor: pointer;
+}
+
+.modal-select-blue:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+}
+
+.modal-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal-form-label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--black);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.modal-form-input {
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--cool-grey-3);
+  font-size: 1rem;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--cool-grey-11);
+  background-color: var(--white);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.modal-form-input::placeholder {
+  color: var(--cool-grey-3);
+}
+
+.modal-form-input:focus {
+  border-color: var(--core-blue);
+  box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+}
+
+.color-picker {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.color-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.color-circle.orange {
+  background-color: var(--core-orange);
+}
+
+.color-circle.blue {
+  background-color: var(--core-blue);
+}
+
+.color-circle.red {
+  background-color: var(--bottlebrush);
+}
+
+.color-circle.yellow {
+  background-color: var(--alachua);
+}
+
+.color-circle.green {
+  background-color: var(--gator);
+}
+
+.color-circle.purple {
+  background-color: var(--perennial);
+}
+
+.color-circle:hover {
+  transform: scale(1.1);
+}
+
+.color-circle.selected {
+  border-color: var(--black);
+  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--black);
+}
+
+.modal-footer-center {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.modal-add-btn-blue {
+  padding: 1rem 2.5rem;
+  background-color: var(--core-blue);
+  color: var(--white);
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-family: 'IBM Plex Sans', sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.modal-add-btn-blue:hover {
+  background-color: #001a7a;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 33, 165, 0.3);
+}
+
+@media (max-width: 768px) {
+  .student-profile-content {
+    padding: 1.5rem;
+  }
+
+  .profile-title {
+    font-size: 1.75rem;
+  }
+
+  .profile-card {
+    grid-template-columns: 1fr;
+    padding: 1.5rem;
+    gap: 1.5rem;
+  }
+
+  .profile-card-edit {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-name {
+    font-size: 1.75rem;
+  }
+
+  .profile-actions {
+    flex-direction: row;
+    min-width: auto;
+  }
+
+  .profile-edit-btn,
+  .profile-logout-btn {
+    flex: 1;
+    min-width: auto;
+  }
+
+  .profile-edit-buttons {
+    flex-direction: row;
+    min-width: auto;
+  }
+
+  .profile-save-btn,
+  .profile-cancel-btn {
+    flex: 1;
+  }
+
+  .profile-courses-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-new-course-inputs {
+    flex-direction: column;
   }
 }

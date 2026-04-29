@@ -31,6 +31,8 @@ type AuthResponse struct {
 		Username string `json:"username"`
 		Email    string `json:"email"`
 		Role     string `json:"role"`
+		Major    string `json:"major,omitempty"`
+		Year     string `json:"year,omitempty"`
 	} `json:"user"`
 }
 
@@ -52,9 +54,9 @@ func Login(db *sql.DB) http.HandlerFunc {
 		}
 
 		var id int
-		var username, email, passwordHash, role string
+		var username, email, passwordHash, role, major, year string
 		err := db.QueryRowContext(r.Context(),
-			`SELECT id, username, email, password, role FROM users WHERE email = $1`, req.Email).Scan(&id, &username, &email, &passwordHash, &role)
+			`SELECT id, username, email, password, role, COALESCE(major, ''), COALESCE(year, '') FROM users WHERE email = $1`, req.Email).Scan(&id, &username, &email, &passwordHash, &role, &major, &year)
 		if err == sql.ErrNoRows {
 			httperr.Write(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password", nil)
 			return
@@ -73,7 +75,7 @@ func Login(db *sql.DB) http.HandlerFunc {
 			httperr.Write(w, http.StatusInternalServerError, "token_unavailable", "could not create token", nil)
 			return
 		}
-		writeAuthResponse(w, token, id, username, email, role)
+		writeAuthResponse(w, token, id, username, email, role, major, year)
 	}
 }
 
@@ -122,11 +124,11 @@ func Register(db *sql.DB) http.HandlerFunc {
 			httperr.Write(w, http.StatusInternalServerError, "token_unavailable", "could not create token", nil)
 			return
 		}
-		writeAuthResponse(w, token, id, req.Username, req.Email, req.Role)
+		writeAuthResponse(w, token, id, req.Username, req.Email, req.Role, "", "")
 	}
 }
 
-func writeAuthResponse(w http.ResponseWriter, token string, id int, username, email, role string) {
+func writeAuthResponse(w http.ResponseWriter, token string, id int, username, email, role, major, year string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	resp := AuthResponse{
@@ -136,6 +138,8 @@ func writeAuthResponse(w http.ResponseWriter, token string, id int, username, em
 	resp.User.Username = username
 	resp.User.Email = email
 	resp.User.Role = role
+	resp.User.Major = major
+	resp.User.Year = year
 	_ = json.NewEncoder(w).Encode(resp)
 }
 

@@ -8,6 +8,7 @@ export interface ScheduleEntry {
   course_id: number;
   course_code: string;
   course_name: string;
+  course_color: string;
   ta_username: string;
   ta_id: number;
   day_of_week: number;

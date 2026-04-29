@@ -6,6 +6,7 @@ import (
 
 	"backend/internal/auth"
 	"backend/internal/studentschedule"
+	"backend/internal/studentcourses"
 	"backend/internal/course"
 	"backend/internal/httperr"
 	"backend/internal/officehour"
@@ -46,7 +47,6 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole("ta"))
 
-		r.Put("/api/users/{id}/profile", auth.UpdateProfile(db))
 		r.Post("/api/office-hours", officehour.Create(db))
 		r.Put("/api/office-hours/{id}", officehour.Update(db))
 		r.Delete("/api/office-hours/{id}", officehour.Delete(db))
@@ -73,11 +73,17 @@ func SetupRoutes(db *sql.DB) *chi.Mux {
 		r.Post("/api/student/schedule", studentschedule.Add(db))
 		r.Get("/api/student/schedule", studentschedule.List(db))
 		r.Delete("/api/student/schedule/{id}", studentschedule.Remove(db))
+
+		r.Get("/api/student/courses", studentcourses.List(db))
+		r.Put("/api/student/courses/batch", studentcourses.UpdateBatch(db))
+		r.Post("/api/student/courses", studentcourses.Add(db))
+		r.Delete("/api/student/courses/{id}", studentcourses.Remove(db))
 	})
 
 	// --- Authenticated: TA and student (own session history) ---
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Put("/api/users/{id}/profile", auth.UpdateProfile(db))
 		r.Get("/api/session-history", sessionlog.ListHistory(db))
 	})
 

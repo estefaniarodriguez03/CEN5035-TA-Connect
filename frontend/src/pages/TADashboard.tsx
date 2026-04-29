@@ -59,15 +59,15 @@ export default function TADashboard() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const getInitialTab = (): 'dashboard' | 'office-hours' | 'queue' => {
+  const getInitialTab = (): 'dashboard' | 'office-hours' => {
     const state = location.state as { activeTab?: string } | undefined;
-    if (state?.activeTab === 'office-hours' || state?.activeTab === 'queue') {
+    if (state?.activeTab === 'office-hours') {
       return state.activeTab;
     }
     return 'dashboard';
   };
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'office-hours' | 'queue'>(getInitialTab());
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'office-hours'>(getInitialTab());
   const [queueStatus, setQueueStatus] = useState<'closed' | 'open' | 'paused'>('closed');
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementText, setAnnouncementText] = useState('');
@@ -84,7 +84,6 @@ export default function TADashboard() {
   // TA dashboard currently operates on one selected office hour at a time.
   const [taCourses, setTACourses] = useState<TACourse[]>([]);
   const [newCourseCode, setNewCourseCode] = useState('');
-  const [newCourseName, setNewCourseName] = useState('');
   const [apiOfficeHours, setApiOfficeHours] = useState<ApiOfficeHour[]>([]);
 
   const getWaitMinutes = (joinedAt: Date): number => {
@@ -517,12 +516,6 @@ export default function TADashboard() {
               onClick={() => setActiveTab('office-hours')}
             >
               My Office Hours
-            </button>
-            <button
-              className={`nav-tab ${activeTab === 'queue' ? 'active' : ''}`}
-              onClick={() => setActiveTab('queue')}
-            >
-              Queue
             </button>
           </div>
         </div>

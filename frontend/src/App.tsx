@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import StudentDashboard from "./pages/StudentDashboard";
 import MyCoursesPage from "./pages/MyCoursesPage";
+import StudentProfilePage from "./pages/StudentProfilePage";
 import TADashboard from "./pages/TADashboard";
 import ProfilePage from "./pages/ProfilePage";
 import { useAuth } from "./context/AuthContext";
@@ -47,6 +48,15 @@ export default function App() {
           element={
             <ProtectedRoute role="student">
               <MyCoursesPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/student/profile"
+          element={
+            <ProtectedRoute role="student">
+              <StudentProfilePage />
             </ProtectedRoute>
           }
         />
