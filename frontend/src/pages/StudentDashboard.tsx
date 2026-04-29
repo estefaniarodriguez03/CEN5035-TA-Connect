@@ -32,6 +32,12 @@ interface CourseOption {
   dayOfWeek: number;
 }
 
+const COURSE_COLORS = ['green', 'purple', 'yellow', 'red', 'blue', 'orange'];
+
+function getCourseColor(courseID: number): string {
+  return COURSE_COLORS[courseID % COURSE_COLORS.length];
+}
+
 function formatTime12(time: string): string {
   const [hours, minutes] = time.split(':');
   const hour = parseInt(hours);
@@ -655,7 +661,7 @@ export default function StudentDashboard() {
                     {scheduleOptions
                       .filter((opt) => opt.dayOfWeek === dayIndex)
                       .map((opt, idx) => (
-                        <div key={idx} className="time-slot slot-blue">
+                        <div key={idx} className={`time-slot slot-${getCourseColor(opt.courseID)}`}>
                           <div className="slot-time">{opt.officeHourTimeRange}</div>
                           <div className="slot-ta">
                             {opt.label.split(' – ')[2]?.split(' (')[0] ?? ''}
