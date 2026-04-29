@@ -178,6 +178,34 @@ func DeleteForTA(db *sql.DB) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusNoContent)
 	}
+// ListAll handles GET /api/courses. Public route.
+func ListAll(db *sql.DB) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        rows, err := db.QueryContext(r.Context(), `
+            SELECT id, code, name FROM courses ORDER BY code ASC
+        `)
+        if err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
+        defer rows.Close()
+
+        out := make([]Course, 0)
+        for rows.Next() {
+            var c Course
+            if err := rows.Scan(&c.ID, &c.Code, &c.Name); err != nil {
+                httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+                return
+            }
+            out = append(out, c)
+        }
+        if err := rows.Err(); err != nil {
+            httperr.Write(w, http.StatusInternalServerError, "internal_error", "database error", nil)
+            return
+        }
+
+        writeJSON(w, http.StatusOK, map[string]any{"courses": out})
+    }
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

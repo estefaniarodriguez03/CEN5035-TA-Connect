@@ -5,6 +5,7 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 export interface OfficeHour {
   id: number;
   ta_id: number;
+  ta_username?: string;
   course_id: number;
   day_of_week: number;
   start_time: string;
@@ -19,6 +20,12 @@ export interface CreateOfficeHourPayload {
   end_time: string;
   location: string;
 }
+
+// Sunday=0 to match the backend's 0-6 encoding
+export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Alias so TADashboard and MyOfficeHoursPage can import listOfficeHoursByTA
+export const listOfficeHoursByTA = getOfficeHoursByTA;
 
 function getAuthHeaders(): HeadersInit {
   const token = sessionStorage.getItem('token') ?? localStorage.getItem('token');
@@ -35,6 +42,17 @@ export async function getOfficeHoursByTA(taId: number): Promise<OfficeHour[]> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(readApiErrorMessage(err, 'Failed to fetch office hours'));
+  }
+  return res.json();
+}
+
+export async function listOfficeHoursByCourse(courseId: number): Promise<OfficeHour[]> {
+  const res = await fetch(`${BASE_URL}/api/office-hours/course/${courseId}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(readApiErrorMessage(err, 'Failed to fetch office hours for course'));
   }
   return res.json();
 }

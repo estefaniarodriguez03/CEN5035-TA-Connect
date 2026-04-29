@@ -1,6 +1,6 @@
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
@@ -8,7 +8,6 @@ import orangeClockIcon from "../images/Orange Clock Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
 import {
-  getActiveQueueForOfficeHour,
   joinQueue,
   leaveQueue,
   getQueueOrNull,
@@ -16,30 +15,29 @@ import {
   browseWaitDisplay,
   myWaitMinutesFromEntry,
 } from "../api/queue";
-import type { QueueEvent, QueueStateChangePayload, StudentUpNextPayload, AnnouncementSentPayload, SessionStartedPayload } from "../api/queue";
-
-interface TAHour {
-  id: number;
-  taName: string;
-  time: string;
-  course: string;
-  students: number;
-  status: "Live" | "Soon" | "Offline";
-}
-
-interface WeeklySlot {
-  id: number;
-  day: string;
-  time: string;
-  taName: string;
-  course: string;
-  color: string;
-}
+import type {
+  QueueEvent,
+  QueueStateChangePayload,
+  StudentUpNextPayload,
+  AnnouncementSentPayload,
+  SessionStartedPayload,
+} from "../api/queue";
+import { listStudentSchedule } from "../api/studentSchedule";
 
 interface CourseOption {
   label: string;
   courseCode: string;
   courseID: number;
+  officeHourTimeRange: string;
+  dayOfWeek: number;
+}
+
+function formatTime12(time: string): string {
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes} ${ampm}`;
 }
 
 function extractUpNextStudentID(payload: QueueEvent["payload"]): number | null {
@@ -47,20 +45,19 @@ function extractUpNextStudentID(payload: QueueEvent["payload"]): number | null {
   if (typeof direct?.student_id === "number") {
     return direct.student_id;
   }
-
-  // Backward compatibility with older backend payload shape:
-  // { students: [{ student_id, position }, ...], threshold }
   const legacy = payload as { students?: Array<{ student_id?: number; position?: number }> } | undefined;
   const head = legacy?.students?.find((s) => s.position === 1) ?? legacy?.students?.[0];
   return typeof head?.student_id === "number" ? head.student_id : null;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+
 export default function StudentDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [selectedCourse, setSelectedCourse] = useState(
-    "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)"
-  );
+  const location = useLocation();
+
+  const [selectedCourse, setSelectedCourse] = useState('');
   const [isInQueue, setIsInQueue] = useState(false);
   const [timeJoined, setTimeJoined] = useState<string>("");
   const [studentPosition, setStudentPosition] = useState<number | null>(null);
@@ -71,35 +68,73 @@ export default function StudentDashboard() {
   const [joinedQueueID, setJoinedQueueID] = useState<number | null>(null);
   const [queueStatusForCourse, setQueueStatusForCourse] = useState<string | null>(null);
   const [activeSession, setActiveSession] = useState<SessionStartedPayload | null>(null);
+  const [scheduleOptions, setScheduleOptions] = useState<CourseOption[]>([]);
+  const [activeQueueID, setActiveQueueID] = useState<number | null>(null);
 
-  const courseOptions: CourseOption[] = [
-    {
-      label: "CEN3031 – Software Engineering – Estefania Rodriguez (9:00 AM - 11:00 AM)",
-      courseCode: "CEN3031",
-      courseID: 1,
-    },
-    {
-      label: "COP3530 – Data Structures – Sara Waters (11:00 AM - 1:00 PM)",
-      courseCode: "COP3530",
-      courseID: 2,
-    },
-    {
-      label: "COP4020 – Programming Languages – Raghav Nanjappan (2:00 PM - 4:00 PM)",
-      courseCode: "COP4020",
-      courseID: 3,
-    },
-    {
-      label: "COP4600 – Operating Systems – John Spurrier (10:00 AM - 12:00 PM)",
-      courseCode: "COP4600",
-      courseID: 4,
-    },
-  ];
+  // Load student schedule on mount
+  useEffect(() => {
+    void (async () => {
+      try {
+        const entries = await listStudentSchedule();
+        const options: CourseOption[] = entries.map((e) => ({
+          label: `${e.course_code} – ${e.course_name} – ${e.ta_username} (${formatTime12(e.start_time)} - ${formatTime12(e.end_time)})`,
+          courseCode: e.course_code,
+          courseID: e.course_id,
+          officeHourTimeRange: `${formatTime12(e.start_time)} - ${formatTime12(e.end_time)}`,
+          dayOfWeek: e.day_of_week,
+        }));
+        setScheduleOptions(options);
+      } catch {
+        // silently ignore
+      }
+    })();
+  }, []);
 
-  const selectedCourseOption = courseOptions.find((course) => course.label === selectedCourse) ?? null;
-  const selectedTimeRange = selectedCourse.match(/\(([^)]+)\)/)?.[1] ?? "";
-  const selectedOfficeHourQueueID = selectedCourseOption
-    ? getActiveQueueForOfficeHour(selectedCourseOption.courseCode, selectedTimeRange)
-    : null;
+  // Auto-select course from navigation state (coming from My Courses page)
+  useEffect(() => {
+    const state = location.state as {
+      autoSelectLabel?: string;
+    } | null;
+
+    if (!state?.autoSelectLabel) return;
+    setSelectedCourse(state.autoSelectLabel);
+    navigate(location.pathname, { replace: true, state: null });
+  }, []);
+
+  const courseOptions = scheduleOptions;
+  const selectedCourseOption = courseOptions.find((c) => c.label === selectedCourse) ?? null;
+
+  // Poll backend for active queue when a course is selected
+  useEffect(() => {
+    if (!selectedCourseOption) {
+      setActiveQueueID(null);
+      return;
+    }
+
+    const checkForActiveQueue = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/queues/active?course_id=${selectedCourseOption.courseID}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setActiveQueueID(data.id ?? null);
+          setQueueStatusForCourse(data.status ?? null);
+        } else {
+          setActiveQueueID(null);
+          setQueueStatusForCourse(null);
+        }
+      } catch {
+        setActiveQueueID(null);
+      }
+    };
+
+    void checkForActiveQueue();
+
+    // Poll every 5 seconds so the student sees the queue open without refreshing
+    const interval = setInterval(() => void checkForActiveQueue(), 5000);
+    return () => clearInterval(interval);
+  }, [selectedCourseOption?.courseID]);
 
   // Load queue data when selected course changes or when joining/leaving queue
   useEffect(() => {
@@ -117,15 +152,14 @@ export default function StudentDashboard() {
 
         const resolvedQueueID = isInQueue && joinedQueueID
           ? joinedQueueID
-          : selectedOfficeHourQueueID;
+          : activeQueueID;
 
         if (!resolvedQueueID) {
           setQueueStudentCount(0);
           setWaitTime("—");
-          setWaitTimeSub("No queue is linked to this time slot. Your TA will open a queue when office hours start.");
+          setWaitTimeSub("No queue is open for this course yet. Your TA will open one when office hours start.");
           setInQueueWaitMinutes(0);
           setStudentPosition(null);
-          setQueueStatusForCourse(null);
           return;
         }
 
@@ -172,12 +206,12 @@ export default function StudentDashboard() {
     };
 
     void loadQueueData();
-  }, [selectedCourse, isInQueue, user?.id, joinedQueueID, selectedCourseOption, selectedOfficeHourQueueID]);
+  }, [selectedCourse, isInQueue, user?.id, joinedQueueID, activeQueueID]);
 
-  // Subscribe to state changes on the selected queue so the paused/closed banner updates live.
+  // Subscribe to state changes on the active queue
   useEffect(() => {
-    if (isInQueue) return; // the in-queue subscription below handles this case
-    const queueID = selectedOfficeHourQueueID;
+    if (isInQueue) return;
+    const queueID = activeQueueID;
     if (!queueID) return;
 
     const unsubscribe = subscribeToQueueEvents(
@@ -200,9 +234,9 @@ export default function StudentDashboard() {
     );
 
     return () => unsubscribe();
-  }, [isInQueue, selectedOfficeHourQueueID]);
+  }, [isInQueue, activeQueueID]);
 
-  // Subscribe to real-time queue updates
+  // Subscribe to real-time queue updates when in queue
   useEffect(() => {
     if (!isInQueue || !joinedQueueID) return;
 
@@ -272,7 +306,6 @@ export default function StudentDashboard() {
           toast.success("Your session is starting now!", {
             description: "Click the Zoom link to join the meeting.",
           });
-          // The backend has already removed this student from the queue.
           setIsInQueue(false);
           setJoinedQueueID(null);
           setStudentPosition(null);
@@ -290,17 +323,13 @@ export default function StudentDashboard() {
     const unsubscribe = subscribeToQueueEvents(
       joinedQueueID,
       handleQueueEvent,
-      () => {
-        void refreshFromServer();
-      }
+      () => { void refreshFromServer(); }
     );
 
-    return () => {
-      unsubscribe();
-    };
+    return () => { unsubscribe(); };
   }, [isInQueue, joinedQueueID, user?.id]);
 
-  // Poll snapshot as reliability fallback in case event stream misses updates.
+  // Poll snapshot as reliability fallback
   useEffect(() => {
     if (!isInQueue || !joinedQueueID) return;
 
@@ -341,73 +370,28 @@ export default function StudentDashboard() {
     return () => clearInterval(interval);
   }, [isInQueue, joinedQueueID, user?.id]);
 
-  const todayTAHours: TAHour[] = [
-    { id: 1, taName: "Estefania Rodriguez", time: "(9:00 AM - 11:00 AM)", course: "CEN3031", students: 3, status: "Live" },
-    { id: 2, taName: "Sara Waters", time: "(11:00 AM - 1:00 PM)", course: "COP3530", students: 0, status: "Soon" },
-    { id: 3, taName: "Raghav Nanjappan", time: "(2:00 PM - 4:00 PM)", course: "COP4020", students: 0, status: "Offline" },
-    { id: 4, taName: "John Spurrier", time: "(10:00 AM - 12:00 PM)", course: "COP4600", students: 1, status: "Live" },
-  ];
-
-  const weeklySchedule: WeeklySlot[] = [
-    { id: 1, day: "Monday", time: "9:00 AM - 11:00 AM", taName: "Estefania Rodriguez", course: "CEN3031 - Software Engineering", color: "green" },
-    { id: 2, day: "Monday", time: "11:00 AM - 1:00 PM", taName: "Raghav Nanjappan", course: "COP4020 - Programming Languages", color: "yellow" },
-    { id: 3, day: "Monday", time: "2:00 PM - 4:00 PM", taName: "Sara Waters", course: "COP3530 - Data Structures", color: "purple" },
-    { id: 4, day: "Tuesday", time: "10:00 AM - 12:00 PM", taName: "John Spurrier", course: "COP4600 - Operating Systems", color: "red" },
-    { id: 5, day: "Tuesday", time: "1:00 PM - 3:00 PM", taName: "Sara Waters", course: "COP3530 - Data Structures", color: "purple" },
-    { id: 6, day: "Tuesday", time: "3:00 PM - 5:00 PM", taName: "Estefania Rodriguez", course: "CEN3031 - Software Engineering", color: "green" },
-    { id: 7, day: "Wednesday", time: "9:00 AM - 11:00 AM", taName: "Raghav Nanjappan", course: "COP4020 - Programming Languages", color: "yellow" },
-    { id: 8, day: "Wednesday", time: "11:00 AM - 1:00 PM", taName: "John Spurrier", course: "COP4600 - Operating Systems", color: "red" },
-    { id: 9, day: "Wednesday", time: "2:00 PM - 4:00 PM", taName: "Sara Waters", course: "COP3530 - Data Structures", color: "purple" },
-    { id: 10, day: "Thursday", time: "10:00 AM - 12:00 PM", taName: "Estefania Rodriguez", course: "CEN3031 - Software Engineering", color: "green" },
-    { id: 11, day: "Thursday", time: "1:00 PM - 3:00 PM", taName: "Raghav Nanjappan", course: "COP4020 - Programming Languages", color: "yellow" },
-    { id: 12, day: "Thursday", time: "3:00 PM - 5:00 PM", taName: "John Spurrier", course: "COP4600 - Operating Systems", color: "red" },
-    { id: 13, day: "Friday", time: "9:00 AM - 11:00 AM", taName: "Sara Waters", course: "COP3530 - Data Structures", color: "purple" },
-    { id: 14, day: "Friday", time: "11:00 AM - 1:00 PM", taName: "Estefania Rodriguez", course: "CEN3031 - Software Engineering", color: "green" },
-    { id: 15, day: "Friday", time: "2:00 PM - 4:00 PM", taName: "Raghav Nanjappan", course: "COP4020 - Programming Languages", color: "yellow" },
-  ];
-
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-
   const getWeekRange = () => {
     const today = new Date();
     const dayOfWeek = today.getDay();
     const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const monday = new Date(today);
     monday.setDate(monday.getDate() - daysToMonday);
-    
     const friday = new Date(monday);
     friday.setDate(friday.getDate() + 4);
-    
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const mondayMonth = monthNames[monday.getMonth()];
-    const fridayMonth = monthNames[friday.getMonth()];
-    
-    return `Week of ${mondayMonth} ${monday.getDate()} - ${fridayMonth} ${friday.getDate()}`;
-  };
-
-  const getStatusClass = (status: string) => {
-    switch (status) {
-      case "Live":
-        return "status-live";
-      case "Soon":
-        return "status-soon";
-      case "Offline":
-        return "status-offline";
-      default:
-        return "";
-    }
+    return `Week of ${monthNames[monday.getMonth()]} ${monday.getDate()} - ${monthNames[friday.getMonth()]} ${friday.getDate()}`;
   };
 
   const handleJoinQueue = async () => {
     try {
       if (!selectedCourseOption) {
-        toast.error("Invalid course selection");
+        toast.error("Please select a course first");
         return;
       }
 
-      const queueID = selectedOfficeHourQueueID;
+      const queueID = activeQueueID;
       if (!queueID) {
-        toast.error("The TA has not opened the queue for this office hours yet. Come back later!");
+        toast.error("The TA has not opened the queue yet. Come back later!");
         return;
       }
 
@@ -418,7 +402,7 @@ export default function StudentDashboard() {
         } else if (queueState?.status === "closed") {
           toast.error("The queue is closed. Check back during the next office hours.");
         } else {
-          toast.error("The TA has not opened the queue for this office hours yet. Come back later!");
+          toast.error("The TA has not opened the queue yet. Come back later!");
         }
         return;
       }
@@ -443,8 +427,7 @@ export default function StudentDashboard() {
 
   const handleLeaveQueue = async () => {
     try {
-      const queueID = joinedQueueID
-        ?? selectedOfficeHourQueueID;
+      const queueID = joinedQueueID ?? activeQueueID;
       if (!queueID) {
         toast.error("No active queue to leave.");
         return;
@@ -459,6 +442,8 @@ export default function StudentDashboard() {
       toast.error(message);
     }
   };
+
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
   return (
     <div className="student-dashboard">
@@ -490,7 +475,7 @@ export default function StudentDashboard() {
           {/* Welcome Section */}
           <div className="welcome-section student-welcome">
             <h1 className="welcome-title">
-              Welcome Back, {user?.username || "Sarah"}! Join a Queue to get Started
+              Welcome Back, {user?.username || "Student"}! Join a Queue to get Started
             </h1>
 
             {/* Course Selection */}
@@ -502,11 +487,18 @@ export default function StudentDashboard() {
                 onChange={(e) => setSelectedCourse(e.target.value)}
                 disabled={isInQueue}
               >
-                {courseOptions.map((course, index) => (
-                  <option key={index} value={course.label}>
-                    {course.label}
-                  </option>
-                ))}
+                {courseOptions.length === 0 ? (
+                  <option value="">No courses added yet — visit My Courses to add some</option>
+                ) : (
+                  <>
+                    <option value="">Select a course and TA...</option>
+                    {courseOptions.map((course, index) => (
+                      <option key={index} value={course.label}>
+                        {course.label}
+                      </option>
+                    ))}
+                  </>
+                )}
               </select>
             </div>
 
@@ -541,10 +533,10 @@ export default function StudentDashboard() {
             )}
 
             {/* Join Queue Button */}
-            <button 
+            <button
               className={`join-queue-btn ${isInQueue ? 'in-queue' : ''} ${!isInQueue && queueStatusForCourse && queueStatusForCourse !== 'open' ? 'queue-blocked' : ''}`}
               onClick={handleJoinQueue}
-              disabled={isInQueue || (queueStatusForCourse !== null && queueStatusForCourse !== 'open')}
+              disabled={isInQueue || !selectedCourse || (queueStatusForCourse !== null && queueStatusForCourse !== 'open')}
             >
               {isInQueue
                 ? 'Already in Queue'
@@ -560,29 +552,38 @@ export default function StudentDashboard() {
           <div className="todays-ta-hours">
             <h2 className="ta-hours-title">Today's TA Hours</h2>
             <div className="ta-hours-list">
-              {todayTAHours.map((ta) => (
-                <div key={ta.id} className="ta-hour-card">
-                  <div className="ta-hour-row">
-                    <div className="ta-info">
-                      <div className="ta-name-time">
-                        <span className="status-dot"></span>
-                        <span className="ta-name">{ta.taName} {ta.time}</span>
-                      </div>
-                      <div className="ta-course-info">
-                        {ta.course} - {ta.students} student{ta.students !== 1 ? "s" : ""}
+              {scheduleOptions.length === 0 ? (
+                <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                  No courses added yet. Visit My Courses to add office hours to your schedule.
+                </p>
+              ) : (
+                scheduleOptions
+                  .filter((opt) => opt.dayOfWeek === new Date().getDay())
+                  .map((option, index) => (
+                    <div key={index} className="ta-hour-card">
+                      <div className="ta-hour-row">
+                        <div className="ta-info">
+                          <div className="ta-name-time">
+                            <span className="status-dot"></span>
+                            <span className="ta-name">{option.label}</span>
+                          </div>
+                          <div className="ta-course-info">{option.courseCode}</div>
+                        </div>
                       </div>
                     </div>
-                    <div className={`ta-status-badge ${getStatusClass(ta.status)}`}>
-                      {ta.status}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  ))
+              )}
+              {scheduleOptions.length > 0 &&
+                scheduleOptions.filter((opt) => opt.dayOfWeek === new Date().getDay()).length === 0 && (
+                  <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+                    No office hours scheduled for today.
+                  </p>
+                )}
             </div>
           </div>
         </div>
 
-        {/* Real-Time Queue Status that is only shown when in queue */}
+        {/* Real-Time Queue Status — only shown when in queue */}
         {isInQueue && (
           <div className="real-time-queue-section">
             <div className="queue-header">
@@ -610,11 +611,7 @@ export default function StudentDashboard() {
             <div className="queue-details">
               <div className="queue-detail-row">
                 <span className="detail-label">Course</span>
-                <span className="detail-value">{selectedCourse.split(' – ')[0]} – Data Structures</span>
-              </div>
-              <div className="queue-detail-row">
-                <span className="detail-label">TA</span>
-                <span className="detail-value">{selectedCourse.split(' – ')[2]?.split(' (')[0] || 'Estefania Rodriguez'}</span>
+                <span className="detail-value">{selectedCourseOption?.courseCode ?? '—'}</span>
               </div>
               <div className="queue-detail-row">
                 <span className="detail-label">Time Joined</span>
@@ -649,21 +646,26 @@ export default function StudentDashboard() {
           </div>
 
           <div className="schedule-grid">
-            {days.map((day) => (
-              <div key={day} className="schedule-day">
-                <div className="day-header">{day}</div>
-                <div className="day-slots">
-                  {weeklySchedule
-                    .filter((slot) => slot.day === day)
-                    .map((slot) => (
-                      <div key={slot.id} className={`time-slot slot-${slot.color}`}>
-                        <div className="slot-time">{slot.time}</div>
-                        <div className="slot-ta">{slot.taName}</div>
-                      </div>
-                    ))}
+            {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((day) => {
+              const dayIndex = DAY_NAMES.indexOf(day);
+              return (
+                <div key={day} className="schedule-day">
+                  <div className="day-header">{day}</div>
+                  <div className="day-slots">
+                    {scheduleOptions
+                      .filter((opt) => opt.dayOfWeek === dayIndex)
+                      .map((opt, idx) => (
+                        <div key={idx} className="time-slot slot-blue">
+                          <div className="slot-time">{opt.officeHourTimeRange}</div>
+                          <div className="slot-ta">
+                            {opt.label.split(' – ')[2]?.split(' (')[0] ?? ''}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Session Started Modal */}
@@ -733,26 +735,6 @@ export default function StudentDashboard() {
               </div>
             </div>
           )}
-
-          {/* Course Legend */}
-          <div className="course-legend">
-            <div className="legend-item">
-              <span className="legend-color legend-green"></span>
-              <span>CEN3031 - Software Engineering</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-color legend-purple"></span>
-              <span>COP3530 - Data Structures</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-color legend-yellow"></span>
-              <span>COP4020 - Programming Languages</span>
-            </div>
-            <div className="legend-item">
-              <span className="legend-color legend-red"></span>
-              <span>COP4600 - Operating Systems</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
