@@ -1,4 +1,4 @@
-import { useAuth } from "../context/AuthContext";
+import { useNavigate, useLocation } from "react-router-dom";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
@@ -6,12 +6,13 @@ import whiteProfileIcon from "../images/White Profile Icon.png";
 interface TALayoutProps {
   children: React.ReactNode;
   sidebar?: React.ReactNode;
-  activeTab?: 'dashboard' | 'office-hours' | 'queue';
+  activeTab?: 'dashboard' | 'office-hours' | 'queue' | 'profile';
   onTabChange?: (tab: 'dashboard' | 'office-hours' | 'queue') => void;
 }
 
 export default function TALayout({ children, sidebar, activeTab = 'dashboard', onTabChange }: TALayoutProps) {
-  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <div className="ta-dashboard" style={{ minHeight: '100vh', width: '100%', display: 'block' }}>
@@ -46,7 +47,15 @@ export default function TALayout({ children, sidebar, activeTab = 'dashboard', o
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={logout}>
+          <button 
+            className="profile-icon" 
+            onClick={() => {
+              if (location.pathname !== "/profile") {
+                navigate("/profile");
+              }
+            }}
+            style={{ cursor: location.pathname === "/profile" ? "default" : "pointer" }}
+          >
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>

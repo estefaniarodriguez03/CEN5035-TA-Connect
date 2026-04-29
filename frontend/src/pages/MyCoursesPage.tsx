@@ -1,4 +1,3 @@
-import { useAuth } from "../context/AuthContext";
 import { useState, useMemo } from "react";
 import ufLogo from "../images/UF Logo.png";
 import whiteNotificationIcon from "../images/White Notification Icon.png";
@@ -30,7 +29,6 @@ interface TodayOfficeHour {
 }
 
 export default function MyCoursesPage() {
-  const { logout } = useAuth();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<"weekly" | "today">("weekly");
   const [filterCourse, setFilterCourse] = useState<string>("all");
@@ -247,14 +245,13 @@ export default function MyCoursesPage() {
           <div className="nav-tabs">
             <button className="nav-tab" onClick={() => handleNavigation("dashboard")}>Dashboard</button>
             <button className="nav-tab active">My Courses</button>
-            <button className="nav-tab">My Queue Status</button>
           </div>
         </div>
         <div className="navbar-right">
           <div className="notification-icon">
             <img src={whiteNotificationIcon} alt="Notifications" />
           </div>
-          <button className="profile-icon" onClick={logout}>
+          <button className="profile-icon" onClick={() => navigate("/profile")}>
             <img src={whiteProfileIcon} alt="Profile" />
           </button>
         </div>
