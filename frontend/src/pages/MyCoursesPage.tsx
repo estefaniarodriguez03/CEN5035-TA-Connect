@@ -5,7 +5,8 @@ import whiteNotificationIcon from "../images/White Notification Icon.png";
 import whiteProfileIcon from "../images/White Profile Icon.png";
 import orangeDateIcon from "../images/Orange Date Icon.png";
 import { toast } from "sonner";
-import { getStudentCourses, type StudentCourse } from "../api/studentCourses";
+import { listAllCourses, type TACourse } from "../api/courses";
+import { addStudentCourse } from "../api/studentCourses";
 import { listOfficeHoursByCourse, DAY_NAMES, type OfficeHour } from "../api/officeHours";
 import {
   listStudentSchedule,
@@ -38,7 +39,8 @@ export default function MyCoursesPage() {
   const [loadingSchedule, setLoadingSchedule] = useState(true);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [studentCourses, setStudentCourses] = useState<StudentCourse[]>([]);
+  /** All courses in the system (created by TAs). Students pick from this list; they cannot create courses. */
+  const [catalogCourses, setCatalogCourses] = useState<TACourse[]>([]);
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
   const [courseOfficeHours, setCourseOfficeHours] = useState<OfficeHour[]>([]);
   const [selectedOfficeHourID, setSelectedOfficeHourID] = useState<number | null>(null);
@@ -62,16 +64,19 @@ export default function MyCoursesPage() {
     })();
   }, []);
 
-  // Load student's enrolled courses when modal opens
+  // Load global course catalog when modal opens (TAs create courses; students enroll by picking from this list)
   useEffect(() => {
     if (!showAddModal) return;
     void (async () => {
       setLoadingCourses(true);
       try {
-        const courses = await getStudentCourses();
-        setStudentCourses(courses);
+        const courses = await listAllCourses();
+        const real = courses.filter(
+          (c) => !c.code.startsWith('AUTO-') && !c.code.startsWith('LEGACY-')
+        );
+        setCatalogCourses(real);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to load your courses');
+        toast.error(error instanceof Error ? error.message : 'Failed to load courses');
       } finally {
         setLoadingCourses(false);
       }
@@ -106,6 +111,13 @@ export default function MyCoursesPage() {
     }
     try {
       await addToStudentSchedule(selectedOfficeHourID);
+      if (selectedCourseID) {
+        try {
+          await addStudentCourse(selectedCourseID);
+        } catch {
+          // Enrollment is idempotent on the server; schedule add already succeeded.
+        }
+      }
       const entries = await listStudentSchedule();
       setSchedule(entries);
       toast.success('Added to your schedule');
@@ -425,7 +437,7 @@ export default function MyCoursesPage() {
                     }}
                   >
                     <option value="">Select a course...</option>
-                    {studentCourses.map((c) => (
+                    {catalogCourses.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.code}{c.name ? ` - ${c.name}` : ''}
                       </option>

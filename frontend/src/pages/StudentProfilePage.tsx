@@ -96,7 +96,13 @@ export default function StudentProfilePage() {
     setIsEditMode(true);
   };
 
+  const coursesAvailableToAdd = availableCourses.filter(
+    (course) => !editCourses.some((c) => c.id === course.id)
+  );
+
   const handleAddCourse = () => {
+    const next = coursesAvailableToAdd[0];
+    setSelectedCourseId(next ? next.id : "");
     setIsAddCourseModalOpen(true);
   };
 
@@ -362,20 +368,30 @@ export default function StudentProfilePage() {
             </div>
             <div className="modal-body">
               <label className="modal-subtitle">Select Available Course</label>
-              <select
-                className="modal-select-blue"
-                value={selectedCourseId}
-                onChange={(e) => setSelectedCourseId(Number(e.target.value))}
-              >
-                {availableCourses.filter(course => !editCourses.some(c => c.id === course.id)).map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.code} - {course.name}
-                  </option>
-                ))}
-              </select>
+              {coursesAvailableToAdd.length === 0 ? (
+                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                  All available courses are already on your profile.
+                </p>
+              ) : (
+                <select
+                  className="modal-select-blue"
+                  value={selectedCourseId === "" ? "" : selectedCourseId}
+                  onChange={(e) => setSelectedCourseId(Number(e.target.value))}
+                >
+                  {coursesAvailableToAdd.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.code} - {course.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="modal-footer-center">
-              <button className="modal-add-btn-blue" onClick={handleConfirmAddCourse}>
+              <button
+                className="modal-add-btn-blue"
+                onClick={handleConfirmAddCourse}
+                disabled={coursesAvailableToAdd.length === 0 || selectedCourseId === ""}
+              >
                 + Add Course
               </button>
             </div>
