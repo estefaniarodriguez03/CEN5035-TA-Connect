@@ -1,7 +1,7 @@
 # TA Connect Sprint 4
 
 ## Video Link
-* **Front-End:** 
+* **Front-End:** https://youtu.be/u9qu_gYQq-Y
 * **Back-End:** https://youtu.be/oxNVwSq2I7o
 
 ## Detail Work Completed in Sprint 4
