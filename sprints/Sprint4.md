@@ -281,12 +281,76 @@
 - **`TestListOfficeHoursByCourse_InvalidID`**
   - **Invalid course id** in path → **400 Bad Request**
  
-### Backend Go Tests (`backend/api_e2e_test.go`) — Sprint 4
-- ...
+### Backend Go Tests (`backend/tests/`) — Sprint 4
+
+**Helper:** `newTestServer`, `setupTestDB`, `doJSON`, `parseAuthUser`, `stdErrorBody` (`backend/tests/helpers_test.go`) — shared migrated DB + chi router for HTTP assertions.
+
+- **`TestAuthMiddleware_Missing_Returns401WithCode`**
+  - **No token** on protected route: `POST /api/queues` → **401 Unauthorized** with JSON **`code`: `auth_required`**
+
+- **`TestAuthMiddleware_InvalidToken_Returns401WithCode`**
+  - **Invalid Bearer token**: same route → **401** with **`code`: `auth_required`**
+
+- **`TestRoleMiddleware_StudentOnTARoute_Returns403WithCodeAndRequiredRole`**
+  - **Student** calls TA-only `POST /api/queues` → **403 Forbidden** with **`code`: `role_forbidden`** and **`details.required_role`: `ta`**
+
+- **`TestRoleMiddleware_TAOnStudentRoute_Returns403WithCodeAndRequiredRole`**
+  - **TA** calls student-only `POST /api/queues/{id}/join` → **403** with **`role_forbidden`** and **`required_role`: `student`**
+
+- **`TestRoleMiddleware_TACannotLeaveQueue`**
+  - **TA** calls `POST /api/queues/{id}/leave` → **403** with **`role_forbidden`** / **`required_role`: `student`**
+
+- **`TestOwnership_NonOwningTAGetsStructured403_OnNext`**
+  - **Non-owner TA** calls `POST /api/queues/{id}/next` → **403** with **`code`: `not_queue_owner`**
+
+- **`TestOwnership_NonOwningTAGetsStructured403_OnUpdateState`**
+  - **Non-owner TA** calls `PATCH /api/queues/{id}/state` → **403** with **`not_queue_owner`**
+
+- **`TestOwnership_NonOwningTAGetsStructured403_OnOfficeHourUpdate`**
+  - **Non-owner TA** calls `PUT /api/office-hours/{id}` → **403** with **`code`: `not_resource_owner`**
+
+- **`TestConcurrentJoins_PositionsUniqueAndContiguous`**
+  - **Concurrent joins**: many students join in parallel → all **201**; **`position`** values are **unique** and cover **1..N**
+
+- **`TestDuplicateJoin_UniqueConstraintReturns409`**
+  - **Second join** same student → **409 Conflict**, message **`already in queue`** (DB uniqueness path)
+
+- **`TestConcurrentServeNext_NeverDoubleServesSameStudent`**
+  - **Concurrent `/next`**: exactly **N** successes for **N** waiting students; **no duplicate `student_id`** served; extras → **404**
+
+- **`TestTACourses_AddAndList`**
+  - **TA** `POST /api/ta/courses` with **`code`/`name`** → **201**; idempotent repeat **`course_id`** → **201**; **`GET /api/ta/courses`** → **200** with linked course
+
+- **`TestTACourses_StudentForbidden`**
+  - **Student** `POST /api/ta/courses` → **403 Forbidden**
+
+- **`TestSessionHistory_Unauthorized`**
+  - **`GET /api/session-history`** without token → **401 Unauthorized**
+
+- **`TestSessionHistory_TAandStudent_SeeRelevantRows`**
+  - After **two `/next`** calls on a two-student queue: **TA** history lists **one** completed session for first student; **served student** sees **one** row; **waiting student** sees **none**
+
+- **`TestSessionLog_WrittenOnSecondNext`**
+  - Two students in line: **first `/next`** leaves **`session_logs` empty**; **second `/next`** persists **one** row for the first student
+
+- **`TestQueueClose_FlushesLastSessionLog`**
+  - Student **in session** (`/next` once): **`PATCH` closed** → **`session_logs`** has **one** row; **`queue_entries`** cleared
+
+- **`TestQueueClose_ClearsLineWithoutSessionLog`**
+  - Student **waiting only** (no `/next`): **`PATCH` closed** → **no `session_logs`** rows
+
+- **`TestQueueState_InvalidTransitionIdempotent`**
+  - **`closed` → `paused`** → **409** with **`invalid_state_transition`** / **`details.allowed`**; **`open` → `open`** PATCH → **200** (idempotent)
+
+- **`TestGetQueueResponse_IncludesETAMetadata`**
+  - **`GET /api/queues/{id}`** includes **`average_session_duration_seconds`**, **`ta_average_session_duration_seconds`**, **`estimated_wait_time_seconds`**, per-entry **`estimated_wait_seconds`**; single waiter at front → **`is_empty`** false and front ETA **0**
+
+- **`TestGetQueue_EmptyQueue_IsEmptyTrue`**
+  - Fresh queue with **no joins**: **`GET /api/queues/{id}`** → **`is_empty`: true**, **`entries`** empty
 
 ## Updated Documentation for Backend API 
 
-The backend is an **HTTP API** in **Go** with **chi** and **PostgreSQL** (`backend/internal/routes/routes.go`, `backend/cmd/server/main.go`, `go.mod`). Most routes use **JSON** request/response bodies. Queues follow **resource-style** paths (`/api/queues`, `/api/queues/{id}`), while **auth** and **queue actions** use **POST** “command” paths (`/api/login`, `/api/register`, `/join`, `/leave`, `/next`) — common for web apps, but not a strict REST-only design. **Live updates** use **Server-Sent Events (SSE)** on **`GET /api/queues/{id}/events`** (`Content-Type: text/event-stream`), not a JSON response body.
+The backend is an **HTTP API** in **Go** with **chi** and **PostgreSQL** (`backend/internal/routes/routes.go`, `backend/cmd/server/main.go`, `go.mod`). Most routes use **JSON** request/response bodies. Queues follow **resource-style** paths (`/api/queues`, `/api/queues/{id}`), while **auth** and queue flows mostly use **POST** command paths (`/api/login`, `/api/register`, `/join`, `/leave`, `/next`) plus **`PATCH /api/queues/{id}/state`** — common for web apps, but not a strict REST-only design. Catalog and history surface as **`GET /api/courses`**, TA **`/api/ta/courses`**, and **`GET /api/session-history`**; protected handlers sit in **TA** vs **student** route groups with role middleware. **Live updates** use **Server-Sent Events (SSE)** on **`GET /api/queues/{id}/events`** (`Content-Type: text/event-stream`), not a JSON response body.
 
 ### Run the server
 
@@ -298,7 +362,9 @@ The backend is an **HTTP API** in **Go** with **chi** and **PostgreSQL** (`backe
 
 - **Base URL:** `http://localhost:<PORT>` (replace `8080` if you set `PORT`).
 - **Bodies / errors:** Most endpoints use JSON. **SSE** (`/events`) uses **`text/event-stream`**, not JSON for the overall response. Wrong HTTP method on a handler → **`405`**. Failures usually look like `{"error":"<message>"}`; many DB failures return **`500`** with `"database error"`.
+- **Structured errors (Sprint 4):** Auth, role, ownership, invalid queue-state transitions, and many validation failures use **`backend/internal/httperr`** JSON **`{ "code", "message", "details" }`** — overlapping with legacy **`{"error":"..."}`** on some older handlers (see Sprint 4 middleware tests for **`auth_required`**, **`role_forbidden`**, **`not_queue_owner`**, **`not_resource_owner`**, **`invalid_state_transition`**).
 - **CORS:** `Access-Control-Allow-Methods: GET, POST, OPTIONS`; headers allowed include `Authorization` (see `corsMiddleware` in `routes.go`).
+- **CORS (complete list):** `corsMiddleware` also allows **PUT**, **PATCH**, **DELETE**, and **OPTIONS** preflight (`routes.go`).
 
 ### Authentication
 
@@ -308,21 +374,29 @@ After **`POST /api/register`** or **`POST /api/login`**, responses include a **`
 
 The JWT carries **`user_id`**, **`email`**, and **`role`** (`student` or `ta`) — see `backend/internal/auth/jwt.go`. Missing token, malformed header, or invalid/expired token → **`401`** with `{"error":"authorization required"}`.
 
+On TA-/student-group routes guarded by **`RequireAuth`** / **`RequireRole`**, **`401`** responses may instead use the structured envelope with **`code`: `auth_required`** (see **`TestAuthMiddleware_*`**).
+
 **Routes that require a valid Bearer token:**
 
 | Route | Extra rule (from code) |
 |--------|-------------------------|
 | `POST /api/queues` | Caller must have **`role: ta`** (`403` otherwise). |
-| `POST /api/queues/{id}/join` | Any authenticated user. |
-| `POST /api/queues/{id}/leave` | Any authenticated user. |
+| `POST /api/queues/{id}/join` | **`role: student`** (middleware); **`403`** for TA. |
+| `POST /api/queues/{id}/leave` | **`role: student`** (middleware); **`403`** for TA. |
 | `POST /api/queues/{id}/next` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
 | `PATCH /api/queues/{id}/state` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
 | `POST /api/queues/{id}/announcement` | **`role: ta`** and JWT **`user_id`** must match the queue’s **`ta_id`** (`403` otherwise). |
 | `POST /api/office-hours` | **`role: ta`** (`403` for students). |
 | `PUT /api/office-hours/{id}` | **`role: ta`** and must own the row (`403` otherwise). |
 | `DELETE /api/office-hours/{id}` | **`role: ta`** and must own the row (`403` otherwise). |
+| `POST /api/ta/courses` | **`role: ta`** (`403` for students). |
+| `GET /api/ta/courses` | **`role: ta`**. |
+| `DELETE /api/ta/courses/{id}` | **`role: ta`** · removes link for **`course_id`** path · **`404`** if not linked. |
+| `GET /api/session-history` | Any authenticated **`ta`** or **`student`** · rows filtered per role (see **`TestSessionHistory_TAandStudent_SeeRelevantRows`**). |
 
-**Public (no token):** **`GET /api/office-hours/ta/{ta_id}`**, **`GET /api/office-hours/course/{course_id}`**, and queue read/SSE routes such as **`GET /api/queues/{id}`**, **`GET /api/queues/active`**, **`GET /api/queues/{id}/events`**.
+**Note (Sprint 4):** **`POST /api/queues/{id}/join`** and **`POST .../leave`** are **student-only** at the middleware layer — a TA bearer token gets **`403`** **`role_forbidden`** (**`TestRoleMiddleware_TACannotLeaveQueue`**).
+
+**Public (no token):** **`GET /api/courses`** (courses with ≥1 TA), **`GET /api/office-hours/ta/{ta_id}`**, **`GET /api/office-hours/course/{course_id}`**, and queue read/SSE routes such as **`GET /api/queues/{id}`**, **`GET /api/queues/active`**, **`GET /api/queues/{id}/events`**.
 
 ### Endpoints
 
@@ -333,13 +407,21 @@ Path parameter **`{id}`** is the numeric queue id (`chi` route `/api/queues/{id}
 | `GET` | `/health` | Ping database | **`200`** `{"status":"ok"}` · **`503`** if ping fails (`{"status":"unavailable","error":"database"}`) |
 | `POST` | `/api/register` | Create user | **`200`** JSON with `token` and `user` `{ id, username, email, role }`. **`400`** validation / bad role · **`409`** duplicate username or email |
 | `POST` | `/api/login` | Login | **`200`** same shape as register · **`401`** bad email/password |
+| `GET` | `/api/courses` | Courses that have ≥1 TA | **`200`** `{ "courses": [ { id, code, name, color }, ... ] }` |
 | `POST` | `/api/queues` | TA starts a queue | **`201`** `{ id, course_id, ta_id, status, created_at }` — **`status`** is **`open`**. Optional body: `{ "course_id": 0 }`; omitting the body ⇒ **`course_id` is 0** |
 | `GET` | `/api/queues/{id}` | Queue + waiting students | **`200`** `{ id, course_id, ta_id, status, created_at, entries: [...] }`. Each entry: `id`, `queue_id`, `student_id`, `position`, `joined_at`, `username`. Ordered by **position**, then **joined_at**. **`404`** unknown queue |
 | `POST` | `/api/queues/{id}/join` | Authenticated user joins | **`201`** `{ id, queue_id, position, joined_at }`. Queue must exist and **`status`** must be **`open`**. Duplicate student in same queue → **`409`**. Triggers SSE (below) |
 | `POST` | `/api/queues/{id}/leave` | Authenticated user leaves | **`204`** empty body; positions renumbered. **`404`** if no row was removed (`not in queue`) |
 | `POST` | `/api/queues/{id}/next` | Owning TA removes front of line | **`200`** `{ "queue_id", "status": "in_session", "student": { …entry } }`. **`404`** no queue or empty queue · **`409`** queue not **`open`**. Triggers SSE |
-| `PATCH` | `/api/queues/{id}/state` | Owning TA sets `open` / `paused` / `closed` | **`200`** `{ id, status }`. Emits **`QUEUE_STATE_CHANGED`** on SSE |
+| `PATCH` | `/api/queues/{id}/state` | Owning TA sets `open` / `paused` / `closed` | **`200`** `{ id, status }`. Emits **`QUEUE_STATE_CHANGED`** on SSE · invalid transition **`409`** (**`invalid_state_transition`**) · closing may flush **`session_logs`** / clear entries (see Sprint 4 summary above) |
+| `POST` | `/api/queues/{id}/session` | Owning TA starts persisted Zoom session for student **in_session** | **`201`** session JSON with Zoom fields · provisioning runs before DB insert (**`backend/internal/queue/session.go`**) |
 | `POST` | `/api/queues/{id}/announcement` | Owning TA posts `{ "message": "..." }` (stored + SSE) | **`201 Created`** body includes `id`, `queue_id`, `message`, `created_at`. **`403`** wrong role or non-owner TA |
+| `POST` | `/api/ta/courses` | TA links self to catalog course (`course_id` **or** `code` + optional `name`/`color`) | **`201`** `{ ta_id, course }` · idempotent link (**`TestTACourses_AddAndList`**) · structured **`400`** if neither reference provided |
+| `GET` | `/api/ta/courses` | TA lists linked courses | **`200`** `{ "courses": [...] }` |
+| `DELETE` | `/api/ta/courses/{id}` | TA removes link by **`course_id`** | **`204`** · **`404`** if not linked |
+| `GET` | `/api/session-history` | Completed sessions visible to caller | **`200`** `{ "sessions": [...] }` · **`401`** without token (**`TestSessionHistory_Unauthorized`**) |
+
+**Queue snapshot (`GET /api/queues/{id}`):** Response also includes **`is_empty`**, **`average_session_duration_seconds`**, **`ta_average_session_duration_seconds`**, **`estimated_wait_time_seconds`**, and each entry may include **`estimated_wait_seconds`** (see **`TestGetQueueResponse_IncludesETAMetadata`**, **`TestGetQueue_EmptyQueue_IsEmptyTrue`**).
 
 **Queue `status` in the database** can be `open`, `paused`, or `closed` (`migrate.go`). **`POST /api/queues`** creates **`open`** queues; **join** and **next** require **`open`** (join returns **409** when paused or closed). The owning TA can change status via **`PATCH /api/queues/{id}/state`** with JSON `{"status":"open"|"paused"|"closed"}` (see queue handler tests above).
 
@@ -380,4 +462,4 @@ curl -s -X POST http://localhost:8080/api/queues \
 
 ### Tests
 
-From **`backend/`** with Postgres and `.env` configured: **`go test -v .`** (see **`api_e2e_test.go`**).
+From **`backend/`** with Postgres and `.env` configured: **`go test -v ./tests`** (see **`backend/tests/`**).
