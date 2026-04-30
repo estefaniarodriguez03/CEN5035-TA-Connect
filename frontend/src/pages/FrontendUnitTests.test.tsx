@@ -93,6 +93,7 @@ vi.mock('../api/profile', () => ({
 vi.mock('../api/studentCourses', () => ({
   getStudentCourses: vi.fn(),
   updateStudentCourses: vi.fn(),
+  addStudentCourse: vi.fn(),
 }));
 
 vi.mock('../images/UF Logo.png', () => ({ default: 'mock-image.png' }));
@@ -146,7 +147,7 @@ import {
   removeFromStudentSchedule,
 } from '../api/studentSchedule';
 import { updateUserProfile } from '../api/profile';
-import { getStudentCourses } from '../api/studentCourses';
+import { getStudentCourses, addStudentCourse } from '../api/studentCourses';
 
 // ─── Shared mock data ─────────────────────────────────────────────────────────
 
@@ -270,6 +271,12 @@ beforeEach(() => {
   vi.mocked(getStudentCourses).mockResolvedValue([
     { id: 2, code: 'COP3530', name: 'Data Structures', color: 'orange' },
   ]);
+  vi.mocked(addStudentCourse).mockResolvedValue({
+    id: 2,
+    code: 'COP3530',
+    name: 'Data Structures',
+    color: 'orange',
+  });
 
   // Office hours mocks
   vi.mocked(listOfficeHoursByTA).mockResolvedValue([mockOfficeHour]);
@@ -911,13 +918,13 @@ describe('MyCoursesPage', () => {
     expect(await screen.findByText('Course')).toBeInTheDocument();
   });
 
-  it('loads student courses when modal is opened', async () => {
+  it('loads course catalog when modal is opened', async () => {
     render(<MyCoursesPage />);
     await screen.findByText("This Week's Office Hours");
     fireEvent.click(screen.getByRole('button', { name: /Add Office Hours/i }));
 
     await waitFor(() => {
-      expect(getStudentCourses).toHaveBeenCalled();
+      expect(listAllCourses).toHaveBeenCalled();
     });
 
     const options = screen.getAllByRole('option');
@@ -925,8 +932,8 @@ describe('MyCoursesPage', () => {
   });
 
   it('shows TA dropdown after selecting a course', async () => {
-    vi.mocked(getStudentCourses).mockResolvedValue([
-      { id: 2, code: 'COP3530', name: 'Data Structures', color: 'orange' },
+    vi.mocked(listAllCourses).mockResolvedValue([
+      { id: 2, code: 'COP3530', name: 'Data Structures' },
     ]);
     vi.mocked(listOfficeHoursByCourse).mockResolvedValue([mockOfficeHour]);
 
@@ -935,7 +942,7 @@ describe('MyCoursesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Add Office Hours/i }));
 
     await waitFor(() => {
-      expect(getStudentCourses).toHaveBeenCalled();
+      expect(listAllCourses).toHaveBeenCalled();
     });
 
     const modalSelect = document.querySelector('select.form-select') as HTMLElement;
