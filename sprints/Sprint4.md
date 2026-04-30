@@ -94,8 +94,74 @@
   - **Navigates to the My Courses page when My Courses tab is clicked:** Verifies that clicking My Courses navigates to the My Courses page
 
 ### Cypress - Sprint 4
-- ...
+- Student Dashboard
+  - **Displays the course dropdown:** Verifies that the course selection dropdown is visible on the student dashboard
+  - **Displays the Estimated Wait Time card:** Verifies that the Estimated Wait Time card is visible on the student dashboard
+  - **Displays the weekly schedule section:** Verifies that the This Week's Office Hours section is visible
+  - **Navigates to the My Courses page when My Courses tab is clicked:** Verifies that clicking My Courses navigates to /student/my-courses
+  - **Navigates to the profile page when the profile icon is clicked:** Verifies that clicking the profile icon navigates to the profile page
 
+- Student Dashboard — Queue Interaction
+  - **Shows helper text when no course is selected:** Verifies that the Select a course to see the queue message is displayed by default
+  - **Join Queue button is disabled when no course is selected:** Verifies that the Join Queue button cannot be clicked until a course is selected
+
+- Student — My Courses Page
+  - **Displays the My Courses page header:** Verifies that the My Courses - Office Hours heading is visible
+  - **Displays the Add Office Hours button:** Verifies that the + Add Office Hours button is visible
+  - **Displays weekly and today view toggle buttons:** Verifies that the Weekly and Today toggle buttons are visible
+  - **Displays filter dropdowns:** Verifies that the Filter by Course and Filter by TA dropdowns are visible
+  - **Switches to Today view when clicked:** Verifies that clicking Today shows the Today's Office Hours section
+  - **Opens the Add Office Hours modal when button is clicked:** Verifies that clicking + Add Office Hours opens the modal
+  - **Shows course dropdown as first step in modal:** Verifies that the Course label and course dropdown are the first step in the modal
+  - **Shows TA dropdown after selecting a course:** Verifies that selecting a course in the modal reveals the TA dropdown
+  - **Add to Schedule button is disabled when no slot is selected:** Verifies that the Add to Schedule button cannot be clicked until a time slot is selected
+  - **Navigates back to dashboard when Dashboard tab is clicked:** Verifies that clicking Dashboard returns to /student
+
+- Student Profile Page
+  - **Displays the student's name:** Verifies that the student's name is visible in the profile card
+  - **Displays the student's email:** Verifies that the student's email address is visible
+  - **Displays the Major field:** Verifies that the Major label is visible
+  - **Displays the Year field:** Verifies that the Year label is visible
+  - **Displays the Courses section:** Verifies that the Courses section is visible
+  - **Displays the Edit Profile button:** Verifies that the Edit Profile button is visible
+  - **Displays the Log Out button:** Verifies that the Log Out button is visible
+  - **Displays the navbar with Dashboard and My Courses tabs:** Verifies that the Dashboard and My Courses navigation tabs are visible
+  - **Navigates to the dashboard when Dashboard tab is clicked:** Verifies that clicking Dashboard navigates to /student
+  - **Navigates to My Courses when My Courses tab is clicked:** Verifies that clicking My Courses navigates to /student/my-courses
+  - **Logs out when Log Out is clicked:** Verifies that clicking Log Out navigates to the login page
+  - **Enters edit mode when Edit Profile is clicked:** Verifies that clicking Edit Profile shows the Save and Cancel buttons
+  - **Shows name input field in edit mode:** Verifies that a name text input is visible in edit mode
+  - **Shows email as disabled in edit mode:** Verifies that the email field is read-only in edit mode
+  - **Shows major input field in edit mode:** Verifies that a major text input is visible in edit mode
+  - **Shows year dropdown in edit mode:** Verifies that the year dropdown is visible in edit mode
+  - **Year dropdown contains all expected options:** Verifies that the year dropdown contains Freshman, Sophomore, Junior, Senior, Graduate, and PhD
+  - **Shows the Add Course button in edit mode:** Verifies that the + Add Course button is visible in edit mode
+  - **Cancels edit mode when Cancel is clicked:** Verifies that clicking Cancel returns to view mode and hides the Save button
+  - **Restores original name when Cancel is clicked after editing:** Verifies that the original name is restored when edits are cancelled
+  - **Updates the name successfully and shows success toast:** Verifies that saving a new name shows a Profile updated successfully! notification
+  - **Can select a different year in edit mode:** Verifies that the year dropdown can be changed to Senior
+  - **Can update the major field:** Verifies that the major input accepts new text
+  - **Opens the Add Course modal when + Add Course is clicked:** Verifies that clicking + Add Course opens the Add Course modal
+  - **Displays the course selection dropdown in the Add Course modal:** Verifies that the course dropdown is visible in the modal
+  - **Closes the Add Course modal when X is clicked:** Verifies that clicking the X button closes the modal
+  - **Adds a course from the modal and shows it in the courses list:** Verifies that selecting and confirming a course adds it to the profile courses list
+  - **Does not show already enrolled courses in the Add Course modal dropdown:** Verifies that already enrolled courses do not appear as options in the modal
+  - **Can remove a course in edit mode:** Verifies that clicking Remove on a course reduces the course count
+
+- TA Profile Page
+  - **Displays the profile page header:** Verifies that the Welcome to your Profile! heading is visible
+  - **Displays the user's email:** Verifies that the TA's email address is visible
+  - **Displays the Edit Profile button:** Verifies that the Edit Profile button is visible
+  - **Displays the Log Out button:** Verifies that the Log Out button is visible
+  - **Enters edit mode when Edit Profile is clicked:** Verifies that clicking Edit Profile shows the Save and Cancel buttons
+  - **Shows a name input field in edit mode:** Verifies that a name input field is visible in edit mode
+  - **Shows email as disabled in edit mode:** Verifies that the email is shown in a read-only disabled field in edit mode
+  - **Shows the Add Course button in edit mode:** Verifies that the + Add Course button is visible in edit mode
+  - **Cancels edit mode when Cancel is clicked:** Verifies that clicking Cancel returns to view mode and hides the Save button
+  - **Updates the username successfully:** Verifies that saving a new username shows a Profile updated successfully! notification
+  - **Opens the Add Course modal in edit mode:** Verifies that clicking + Add Course opens the Add Course modal
+  - **Logs out when Log Out is clicked:** Verifies that clicking Log Out navigates to the login page
+  
 ### Unit Tests (Vitest + React Testing Library) - Sprint 2
 
 - Login Page
@@ -159,8 +225,41 @@
   - **Updates an office hour and shows success toast on edit submission:** Verifies that editing an office hour updates it and shows a success toast
 
 ### Unit Tests (Vitest + React Testing Library) - Sprint 4
-- ...
 
+- Student Dashboard Page
+  - **Renders the course dropdown:** Verifies that the course selection dropdown is rendered on the student dashboard
+  - **Populates dropdown with schedule entries from API:** Verifies that listStudentSchedule is called on mount and the dropdown is present
+  - **Shows placeholder when no schedule entries exist:** Verifies that a placeholder message appears when the student has no courses added
+  - **Auto-selects course from navigation state:** Verifies that navigating from My Courses with an autoSelectLabel pre-selects the correct course and clears navigation state
+  - **Join Queue button is disabled when no course is selected:** Verifies that the Join Queue button is disabled until a course is selected
+  - **Joins queue and shows real-time section:** Verifies that selecting a course, waiting for the active queue poll, and clicking Join Queue shows the Real-Time Queue Status section
+  - **Leaves queue and hides real-time section:** Verifies that clicking Cancel & Leave Queue hides the Real-Time Queue Status section and calls the leave queue API
+
+- TA Dashboard Page
+  - **Loads TA courses from API on mount:** Verifies that listMyTACourses is called when the TA dashboard mounts
+  - **Loads office hours from API on mount:** Verifies that listOfficeHoursByTA is called with the TA's user ID when the dashboard mounts
+  - **Displays Send Announcement button on closed dashboard:** Verifies that the Send Announcement button is visible on the closed dashboard state
+  - **Calls startSession when Start Session is clicked on first queued student:** Verifies that clicking Start Session calls the startSession API with the correct queue and student IDs
+  - **Shows session modal with Zoom details after starting session:** Verifies that after starting a session the modal appears showing the student name and Zoom meeting ID
+
+- My Office Hours Page
+  - **Displays existing office hours:** Verifies that loaded office hours are displayed with the correct time
+  - **Shows course dropdown in modal with linked courses:** Verifies that the course dropdown in the Add Office Hours modal shows the TA's linked courses
+  - **Disables Add Office Hours button when no courses are linked:** Verifies that the + Add Office Hours button is disabled when the TA has no linked courses
+
+- My Courses Page
+  - **Renders my courses page with weekly view by default:** Verifies that the My Courses page loads with the This Week's Office Hours section and Weekly button active
+  - **Loads and displays student schedule from API:** Verifies that listStudentSchedule is called and the schedule data is displayed
+  - **Switches to today view when clicking Today button:** Verifies that clicking Today switches to the Today's Office Hours view
+  - **Opens Add Office Hours modal when clicking add button:** Verifies that clicking + Add Office Hours opens the modal with the Course step visible
+  - **Loads student courses when modal is opened:** Verifies that getStudentCourses is called when the modal opens and courses appear as options
+  - **Shows TA dropdown after selecting a course:** Verifies that selecting a course in the modal triggers listOfficeHoursByCourse and shows the TA step
+  - **Add to Schedule button is disabled when no slot is selected:** Verifies that the Add to Schedule button is disabled until a time slot is chosen
+  - **Closes modal when Cancel is clicked:** Verifies that clicking Cancel removes the Add to Schedule button from the DOM
+  - **Calls removeFromStudentSchedule when × delete button is clicked:** Verifies that clicking the delete button calls removeFromStudentSchedule with the correct entry ID
+  - **Navigates to /student when Dashboard nav is clicked:** Verifies that clicking Dashboard navigates to the student dashboard
+  - **Navigates to /student with autoSelectLabel when Join Queue is clicked in today view:** Verifies that clicking Join Queue in the Today view navigates to /student with the correct autoSelectLabel in navigation state
+  
 ## List Backend Unit Tests
 ### Backend Go Tests (`backend/api_e2e_test.go`) - Sprint 2
 
